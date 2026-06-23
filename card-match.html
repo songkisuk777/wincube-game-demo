@@ -1,0 +1,267 @@
+<!-- 같은 그림 맞추기(메모리 카드 게임) 데모 — 단일 HTML, 모바일 세로형, 46종 캐릭터 타일 사용 -->
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<title>같은 그림 맞추기 — WinCube Demo</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+html,body{width:100%;height:100%;font-family:'Apple SD Gothic Neo','Malgun Gothic',sans-serif;background:#cfe3f2;display:flex;justify-content:center;align-items:center;overflow:hidden;}
+#wrap{position:relative;width:390px;max-width:100vw;height:100%;max-height:760px;background:#eaf4fb;overflow:hidden;display:flex;flex-direction:column;}
+.screen{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;}
+.hidden{display:none!important;}
+
+/* ---------- 시작 화면 ---------- */
+#start{justify-content:flex-start;padding-top:46px;background:linear-gradient(180deg,#bfe0f5 0%,#d9f0d8 100%);}
+#start h1{font-size:40px;font-weight:900;color:#3a7bd5;text-align:center;line-height:1.15;text-shadow:2px 3px 0 #fff,4px 6px 0 rgba(0,0,0,.06);letter-spacing:-1px;}
+.levels{margin-top:30px;display:flex;flex-direction:column;gap:18px;width:100%;align-items:center;}
+.lv{width:200px;padding:18px 0;border:none;border-radius:40px;font-size:24px;font-weight:800;color:#fff;cursor:pointer;box-shadow:0 6px 0 rgba(0,0,0,.18),inset 0 3px 0 rgba(255,255,255,.4);transition:transform .08s;}
+.lv:active{transform:translateY(4px);box-shadow:0 2px 0 rgba(0,0,0,.18),inset 0 3px 0 rgba(255,255,255,.4);}
+.lv.easy{background:#7ac943;}
+.lv.normal{background:#ffa53c;}
+.lv.hard{background:#a96bd8;}
+.mascot{position:absolute;bottom:0;left:0;right:0;display:flex;justify-content:center;align-items:flex-end;pointer-events:none;}
+.mascot img{width:120px;filter:drop-shadow(0 -2px 6px rgba(0,0,0,.08));}
+.speech{position:absolute;bottom:148px;right:20px;background:#fff;border-radius:16px;padding:12px 16px;font-size:13px;color:#666;font-weight:600;box-shadow:0 3px 10px rgba(0,0,0,.12);max-width:160px;line-height:1.4;}
+.speech:after{content:"";position:absolute;bottom:-8px;left:30px;border:8px solid transparent;border-top-color:#fff;border-bottom:0;}
+
+/* ---------- 게임 화면 ---------- */
+#game{background:#eaf4fb;}
+.hud{flex:0 0 auto;width:100%;height:54px;display:flex;align-items:center;gap:10px;padding:0 12px;background:rgba(255,255,255,.7);backdrop-filter:blur(4px);}
+.hud .back{font-size:26px;font-weight:900;color:#3a7bd5;background:none;border:none;cursor:pointer;line-height:1;padding:4px 8px;}
+.hud .stat{display:flex;align-items:center;font-weight:800;font-size:18px;color:#555;}
+.hud .hearts{color:#ff5a7a;}
+.hud .pairs{color:#3a7bd5;}
+.hud .time{margin-left:auto;color:#888;font-variant-numeric:tabular-nums;}
+#board{flex:1 1 auto;width:100%;display:grid;gap:8px;padding:12px;align-content:center;grid-template-columns:repeat(var(--cols,4),1fr);overflow:auto;}
+
+.card{aspect-ratio:1/1;perspective:700px;cursor:pointer;}
+.card .inner{position:relative;width:100%;height:100%;transition:transform .38s cubic-bezier(.4,.2,.2,1);transform-style:preserve-3d;}
+.card.flip .inner{transform:rotateY(180deg);}
+.face{position:absolute;inset:0;border-radius:14px;backface-visibility:hidden;-webkit-backface-visibility:hidden;overflow:hidden;box-shadow:0 3px 6px rgba(0,0,0,.12);}
+.back{background:linear-gradient(150deg,#ff9a9e 0%,#f6757f 100%);display:flex;align-items:center;justify-content:center;}
+.back:after{content:"?";color:rgba(255,255,255,.85);font-size:140%;font-weight:900;text-shadow:0 1px 2px rgba(0,0,0,.15);}
+.front{transform:rotateY(180deg);background:#fff;}
+.front img{width:100%;height:100%;object-fit:cover;display:block;}
+.card.matched{animation:pop .4s ease;}
+.card.matched .inner{box-shadow:0 0 0 3px #ffd84d,0 0 14px rgba(255,200,40,.8);border-radius:14px;}
+.card.matched{pointer-events:none;}
+@keyframes pop{0%{transform:scale(1)}40%{transform:scale(1.12)}100%{transform:scale(1)}}
+
+/* ---------- 결과 오버레이 ---------- */
+#result{justify-content:center;background:rgba(20,30,50,.55);backdrop-filter:blur(3px);}
+.panel{background:#fff;border-radius:24px;padding:32px 28px;width:280px;text-align:center;box-shadow:0 12px 40px rgba(0,0,0,.3);animation:drop .35s ease;}
+@keyframes drop{from{transform:translateY(-24px);opacity:0}to{transform:translateY(0);opacity:1}}
+.panel h2{font-size:32px;font-weight:900;margin-bottom:8px;}
+.panel.win h2{color:#7ac943;}
+.panel.lose h2{color:#ff5a7a;}
+.panel .emoji{font-size:54px;margin-bottom:6px;}
+.panel p{color:#777;font-size:15px;font-weight:600;line-height:1.6;margin-bottom:22px;}
+.panel button{display:block;width:100%;padding:14px 0;margin-top:10px;border:none;border-radius:30px;font-size:17px;font-weight:800;color:#fff;cursor:pointer;box-shadow:0 4px 0 rgba(0,0,0,.15);}
+.panel button:active{transform:translateY(3px);box-shadow:0 1px 0 rgba(0,0,0,.15);}
+.btn-retry{background:#3a7bd5;}
+.btn-home{background:#b9c3cf;}
+</style>
+</head>
+<body>
+<div id="wrap">
+
+  <!-- 시작 화면 -->
+  <section id="start" class="screen">
+    <h1>같은 그림<br>맞추기!</h1>
+    <div class="levels">
+      <button class="lv easy"   data-lv="easy">쉬움</button>
+      <button class="lv normal" data-lv="normal">보통</button>
+      <button class="lv hard"   data-lv="hard">어려움</button>
+    </div>
+    <div class="speech">카드를 두 장씩<br>뒤집어 짝을 맞춰요!</div>
+    <div class="mascot"><img src="assets/cards/card01.png" alt="마스코트"></div>
+  </section>
+
+  <!-- 게임 화면 -->
+  <section id="game" class="screen hidden">
+    <div class="hud">
+      <button class="back" id="btnBack">‹</button>
+      <div class="stat hearts">♥&nbsp;<span id="heart">5</span></div>
+      <div class="stat pairs"><span id="found">0</span>/<span id="total">6</span></div>
+      <div class="stat time" id="time">0:00</div>
+    </div>
+    <div id="board"></div>
+  </section>
+
+  <!-- 결과 오버레이 -->
+  <section id="result" class="screen hidden">
+    <div class="panel" id="panel">
+      <div class="emoji" id="remoji">🎉</div>
+      <h2 id="rtitle">클리어!</h2>
+      <p id="rstat"></p>
+      <button class="btn-retry" id="btnRetry">다시하기</button>
+      <button class="btn-home" id="btnHome">난이도 선택</button>
+    </div>
+  </section>
+
+</div>
+
+<script>
+"use strict";
+
+// ---- 난이도 설정 ----
+const LEVELS = {
+  easy:   { cols:4, pairs:6,  hearts:5  },
+  normal: { cols:4, pairs:8,  hearts:8  },
+  hard:   { cols:5, pairs:15, hearts:12 },
+};
+const TILE_COUNT = 46; // assets/cards/card01.png ~ card46.png
+
+// ---- DOM ----
+const $ = s => document.querySelector(s);
+const startScr = $('#start'), gameScr = $('#game'), resultScr = $('#result');
+const board = $('#board');
+const heartEl = $('#heart'), foundEl = $('#found'), totalEl = $('#total'), timeEl = $('#time');
+
+// ---- 상태 ----
+let level, hearts, pairsTotal, pairsFound, lockBoard, first, second;
+let timer = null, seconds = 0;
+
+// ---- 유틸 ----
+function shuffle(a){
+  for (let i = a.length - 1; i > 0; i--){
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+function fmt(s){ return Math.floor(s/60) + ':' + String(s%60).padStart(2,'0'); }
+
+// ---- 사운드(WebAudio 간단 블립, 에셋 없음) ----
+let ac = null;
+function beep(freq, dur, type='sine'){
+  try{
+    ac = ac || new (window.AudioContext||window.webkitAudioContext)();
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.type = type; o.frequency.value = freq;
+    o.connect(g); g.connect(ac.destination);
+    g.gain.setValueAtTime(.12, ac.currentTime);
+    g.gain.exponentialRampToValueAtTime(.001, ac.currentTime + dur);
+    o.start(); o.stop(ac.currentTime + dur);
+  }catch(e){}
+}
+
+// ---- 게임 시작 ----
+function startGame(lv){
+  level = lv;
+  const cfg = LEVELS[lv];
+  hearts = cfg.hearts;
+  pairsTotal = cfg.pairs;
+  pairsFound = 0;
+  lockBoard = false; first = null; second = null;
+  seconds = 0;
+
+  // 카드 덱 구성: 고유 타일 pairs개 무작위 추출 → 짝 복제 → 셔플
+  const ids = shuffle([...Array(TILE_COUNT).keys()].map(i => i + 1)).slice(0, cfg.pairs);
+  const deck = shuffle(ids.concat(ids.slice()));
+
+  // 보드 렌더
+  board.style.setProperty('--cols', cfg.cols);
+  board.innerHTML = '';
+  deck.forEach(id => {
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.dataset.id = id;
+    const n = String(id).padStart(2, '0');
+    card.innerHTML =
+      '<div class="inner">' +
+        '<div class="face back"></div>' +
+        '<div class="face front"><img src="assets/cards/card' + n + '.png" alt=""></div>' +
+      '</div>';
+    card.addEventListener('click', () => onFlip(card));
+    board.appendChild(card);
+  });
+
+  // HUD
+  heartEl.textContent = hearts;
+  foundEl.textContent = 0;
+  totalEl.textContent = pairsTotal;
+  timeEl.textContent = '0:00';
+
+  // 타이머
+  clearInterval(timer);
+  timer = setInterval(() => { seconds++; timeEl.textContent = fmt(seconds); }, 1000);
+
+  startScr.classList.add('hidden');
+  resultScr.classList.add('hidden');
+  gameScr.classList.remove('hidden');
+}
+
+// ---- 카드 뒤집기 ----
+function onFlip(card){
+  if (lockBoard) return;
+  if (card === first) return;            // 같은 카드 두 번 클릭 방지
+  if (card.classList.contains('matched')) return;
+  if (card.classList.contains('flip')) return;
+
+  card.classList.add('flip');
+  beep(660, .08);
+
+  if (!first){ first = card; return; }
+
+  second = card;
+  lockBoard = true;
+
+  if (first.dataset.id === second.dataset.id){
+    // 일치
+    setTimeout(() => {
+      first.classList.add('matched');
+      second.classList.add('matched');
+      beep(880, .12); beep(1175, .14);
+      pairsFound++;
+      foundEl.textContent = pairsFound;
+      resetTurn();
+      if (pairsFound === pairsTotal) endGame(true);
+    }, 350);
+  } else {
+    // 불일치 → 하트 감소 후 닫기
+    hearts--;
+    heartEl.textContent = hearts;
+    beep(180, .2, 'square');
+    setTimeout(() => {
+      first.classList.remove('flip');
+      second.classList.remove('flip');
+      resetTurn();
+      if (hearts <= 0) endGame(false);
+    }, 850);
+  }
+}
+function resetTurn(){ first = null; second = null; lockBoard = false; }
+
+// ---- 종료 ----
+function endGame(win){
+  clearInterval(timer);
+  const panel = $('#panel');
+  panel.className = 'panel ' + (win ? 'win' : 'lose');
+  $('#remoji').textContent = win ? '🎉' : '😢';
+  $('#rtitle').textContent = win ? '클리어!' : '게임 오버';
+  $('#rstat').innerHTML = win
+    ? '맞춘 짝 ' + pairsTotal + '개<br>걸린 시간 ' + fmt(seconds) + ' · 남은 하트 ♥' + hearts
+    : '아쉬워요! 짝 ' + pairsFound + '/' + pairsTotal + '개<br>다시 도전해 보세요.';
+  setTimeout(() => resultScr.classList.remove('hidden'), 500);
+}
+
+// ---- 화면 전환 ----
+function goHome(){
+  clearInterval(timer);
+  resultScr.classList.add('hidden');
+  gameScr.classList.add('hidden');
+  startScr.classList.remove('hidden');
+}
+
+// ---- 이벤트 바인딩 ----
+document.querySelectorAll('.lv').forEach(b =>
+  b.addEventListener('click', () => startGame(b.dataset.lv)));
+$('#btnBack').addEventListener('click', goHome);
+$('#btnHome').addEventListener('click', goHome);
+$('#btnRetry').addEventListener('click', () => startGame(level));
+</script>
+</body>
+</html>

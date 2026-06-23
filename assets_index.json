@@ -1,0 +1,43 @@
+{
+  "_comment": "Space Defender 데모 에셋 인덱스 — 스프라이트 시트 좌표 정리 (가이드 2번: 이미지 목록표)",
+  "sprites": {
+    "plane": {
+      "file": "비행기 모델.png",
+      "sheet": [1536, 1024],
+      "transparent": true,
+      "layout": "3열 (각 512×1024)",
+      "frames": [
+        { "name": "RED",   "rect": [0, 0, 512, 1024] },
+        { "name": "BLUE",  "rect": [512, 0, 512, 1024] },
+        { "name": "GREEN", "rect": [1024, 0, 512, 1024] }
+      ]
+    },
+    "villain": {
+      "file": "빌런_투명.png",
+      "source": "빌런 모델.png",
+      "sheet": [1536, 1024],
+      "transparent": true,
+      "note": "_prep_assets.py로 흰 배경(테두리 연결 영역) 제거",
+      "layout": "상단 3열(512×512) + 하단 2열(768×512)",
+      "frames": [
+        { "name": "RED_CRAB",    "rect": [0, 0, 512, 512] },
+        { "name": "PURPLE_EYE",  "rect": [512, 0, 512, 512] },
+        { "name": "GOLD_STAR",   "rect": [1024, 0, 512, 512] },
+        { "name": "GREEN_WING",  "rect": [0, 512, 768, 512] },
+        { "name": "BLUE_SERPENT","rect": [768, 512, 768, 512] }
+      ]
+    },
+    "boss": {
+      "file": "보스몹 모델.png",
+      "sheet": [1024, 1024],
+      "transparent": true,
+      "layout": "3열×4행 그리드 중 10개 사용 (각 셀 ~341×256)",
+      "frames_origin": [
+        [0,0],[341,0],[682,0],
+        [0,256],[341,256],[682,256],
+        [0,512],[341,512],[682,512],
+        [341,768]
+      ]
+    }
+  }
+}

@@ -1,0 +1,73 @@
+<!-- WinCube 게임 데모 허브 — Space Defender / 같은 그림 맞추기 진입 선택 화면 -->
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<title>WinCube 게임 데모</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+html,body{width:100%;height:100%;font-family:'Apple SD Gothic Neo','Malgun Gothic',sans-serif;display:flex;justify-content:center;align-items:center;background:#1b2540;overflow:hidden;}
+#wrap{position:relative;width:390px;max-width:100vw;height:100%;max-height:760px;background:linear-gradient(180deg,#243056 0%,#101728 100%);display:flex;flex-direction:column;align-items:center;padding:48px 22px 28px;}
+.brand{font-size:14px;font-weight:700;letter-spacing:3px;color:#7da2ff;text-transform:uppercase;}
+h1{margin-top:6px;font-size:30px;font-weight:900;color:#fff;text-shadow:0 2px 12px rgba(120,160,255,.4);}
+.sub{margin-top:6px;font-size:13px;color:#8c9bc4;}
+.list{margin-top:34px;width:100%;display:flex;flex-direction:column;gap:18px;}
+.game{position:relative;display:flex;align-items:center;gap:16px;padding:18px;border-radius:22px;text-decoration:none;overflow:hidden;box-shadow:0 8px 22px rgba(0,0,0,.35);transition:transform .1s;}
+.game:active{transform:scale(.97);}
+.game .thumb{flex:0 0 78px;width:78px;height:78px;border-radius:18px;display:flex;align-items:center;justify-content:center;font-size:42px;overflow:hidden;}
+.game .meta{flex:1 1 auto;color:#fff;}
+.game .meta .nm{font-size:20px;font-weight:900;}
+.game .meta .ds{margin-top:4px;font-size:12.5px;opacity:.85;line-height:1.4;}
+.game .go{flex:0 0 auto;font-size:26px;font-weight:900;color:rgba(255,255,255,.8);}
+
+.g-space{background:linear-gradient(135deg,#3a2a6b 0%,#1c2a5a 100%);}
+.g-space .thumb{background:rgba(0,0,0,.3);}
+.g-card{background:linear-gradient(135deg,#ff9aa2 0%,#ffb86b 100%);}
+.g-card .thumb{background:rgba(255,255,255,.55);}
+.g-card .thumb img{width:100%;height:100%;object-fit:cover;}
+.g-dirt{background:linear-gradient(135deg,#8a5a2b 0%,#caa35a 100%);}
+.g-dirt .thumb{background:rgba(0,0,0,.22);}
+
+.foot{margin-top:auto;font-size:11px;color:#5d6b94;letter-spacing:.5px;}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div class="brand">WinCube</div>
+  <h1>게임 데모</h1>
+  <div class="sub">플레이할 게임을 골라보세요</div>
+
+  <div class="list">
+    <a class="game g-space" href="space-defender.html">
+      <div class="thumb">🚀</div>
+      <div class="meta">
+        <div class="nm">Space Defender</div>
+        <div class="ds">우주선을 조종해 적을 막아내는<br>반응속도 슈팅 게임</div>
+      </div>
+      <div class="go">›</div>
+    </a>
+
+    <a class="game g-card" href="card-match.html">
+      <div class="thumb"><img src="assets/cards/card01.png" alt="카드"></div>
+      <div class="meta">
+        <div class="nm">같은 그림 맞추기</div>
+        <div class="ds">카드를 두 장씩 뒤집어<br>짝을 맞추는 캐주얼 게임</div>
+      </div>
+      <div class="go">›</div>
+    </a>
+
+    <a class="game g-dirt" href="dirt-runner.html">
+      <div class="thumb">🐣</div>
+      <div class="meta">
+        <div class="nm">흙속의 병아리</div>
+        <div class="ds">달리며 장애물을 피하는<br>엔드리스 러너 게임</div>
+      </div>
+      <div class="go">›</div>
+    </a>
+  </div>
+
+  <div class="foot">WinCube Marketing · Game Demo</div>
+</div>
+</body>
+</html>

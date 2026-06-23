@@ -1,0 +1,1325 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>🐣 흙속의 병아리 - Dirt Runner</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #2a1a0a;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      overflow: hidden;
+      touch-action: none;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+    canvas {
+      display: block;
+      image-rendering: pixelated;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="gameCanvas"></canvas>
+  <script>
+  // ============================================================
+  // 🐥 흙속의 병아리 (Dirt Chick Runner)
+  // Super Penguins inspired endless runner prototype
+  // ============================================================
+
+  const canvas = document.getElementById('gameCanvas');
+  const ctx = canvas.getContext('2d');
+
+  // --- Canvas Sizing ---
+  const GAME_WIDTH = 800;
+  const GAME_HEIGHT = 450;
+  const GROUND_Y = 340;
+
+  function resizeCanvas() {
+    const ratio = GAME_WIDTH / GAME_HEIGHT;
+    let w = window.innerWidth;
+    let h = window.innerHeight;
+    if (w / h > ratio) {
+      w = h * ratio;
+    } else {
+      h = w / ratio;
+    }
+    canvas.width = GAME_WIDTH;
+    canvas.height = GAME_HEIGHT;
+    canvas.style.width = w + 'px';
+    canvas.style.height = h + 'px';
+  }
+  window.addEventListener('resize', resizeCanvas);
+  resizeCanvas();
+
+  // --- Constants ---
+  const GRAVITY = 0.6;
+  const JUMP_FORCE = -12;
+  const INITIAL_SPEED = 4;
+  const MAX_SPEED = 10;
+  const SPEED_INCREMENT = 0.0003;
+  const PLAYER_X = 100;
+
+  // --- Game State ---
+  const STATE = { MENU: 0, PLAYING: 1, GAMEOVER: 2 };
+  let gameState = STATE.MENU;
+  let gameSpeed = INITIAL_SPEED;
+  let distance = 0;
+  let score = 0;
+  let highScore = 0;
+  let frameCount = 0;
+  let lastObstacleX = 0;
+  let lastCollectibleX = 0;
+  let dustParticles = [];
+  let collectEffects = [];
+  let screenShake = 0;
+
+  // --- Color Palette ---
+  const COLORS = {
+    skyTop: '#87CEEB',
+    skyBottom: '#E0F0FF',
+    sun: '#FFE066',
+    sunGlow: 'rgba(255,224,102,0.3)',
+    cloud: 'rgba(255,255,255,0.9)',
+    cloudShadow: 'rgba(200,210,230,0.7)',
+    groundTop: '#8B6914',
+    groundMid: '#6B4E0A',
+    groundBottom: '#4A3506',
+    grass: '#5DA832',
+    grassDark: '#4A8A28',
+    dirtDot: '#7A5C10',
+    chick: { body: '#FFE14D', bodyDark: '#F5D030', beak: '#FF8C00', feet: '#FF6B35', eye: '#2D1B00', cheek: 'rgba(255,150,100,0.5)' },
+    rock: '#8A8A8A',
+    rockDark: '#6A6A6A',
+    rockLight: '#A0A0A0',
+    branch: '#6B3A1F',
+    branchLight: '#8B5A3A',
+    worm: '#E88FBF',
+    wormDark: '#D070A0',
+    wormLight: '#FFB0D8',
+    ui: { bg: 'rgba(0,0,0,0.5)', text: '#FFFFFF', accent: '#FFE14D', score: '#FFD700' }
+  };
+
+  // ============================================================
+  // BACKGROUND - Parallax layers
+  // ============================================================
+
+  class Cloud {
+    constructor() {
+      this.reset(true);
+    }
+    reset(initial) {
+      this.x = initial ? Math.random() * GAME_WIDTH : GAME_WIDTH + Math.random() * 200;
+      this.y = 30 + Math.random() * 100;
+      this.width = 60 + Math.random() * 80;
+      this.height = 25 + Math.random() * 20;
+      this.speed = 0.2 + Math.random() * 0.3;
+      this.opacity = 0.5 + Math.random() * 0.4;
+    }
+    update() {
+      this.x -= this.speed * (gameSpeed / INITIAL_SPEED);
+      if (this.x + this.width < -50) this.reset(false);
+    }
+    draw() {
+      ctx.save();
+      ctx.globalAlpha = this.opacity;
+      ctx.fillStyle = COLORS.cloud;
+      const cx = this.x + this.width / 2;
+      const cy = this.y + this.height / 2;
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, this.width / 2, this.height / 2, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(cx - this.width * 0.25, cy + 3, this.width * 0.3, this.height * 0.35, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(cx + this.width * 0.25, cy + 2, this.width * 0.25, this.height * 0.3, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  class BackgroundBush {
+    constructor() {
+      this.reset(true);
+    }
+    reset(initial) {
+      this.x = initial ? Math.random() * GAME_WIDTH : GAME_WIDTH + Math.random() * 100;
+      this.type = Math.random() > 0.5 ? 'bush' : 'flower';
+      this.size = 0.6 + Math.random() * 0.6;
+    }
+    update() {
+      this.x -= gameSpeed * 0.5;
+      if (this.x < -50) this.reset(false);
+    }
+    draw() {
+      ctx.save();
+      if (this.type === 'bush') {
+        const s = this.size;
+        const bx = this.x;
+        const by = GROUND_Y - 2;
+        ctx.fillStyle = COLORS.grassDark;
+        ctx.beginPath();
+        ctx.ellipse(bx, by - 10 * s, 15 * s, 12 * s, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = COLORS.grass;
+        ctx.beginPath();
+        ctx.ellipse(bx + 5 * s, by - 8 * s, 10 * s, 8 * s, 0, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        const s = this.size;
+        const fx = this.x;
+        const fy = GROUND_Y;
+        // Stem
+        ctx.strokeStyle = '#4A8A28';
+        ctx.lineWidth = 2 * s;
+        ctx.beginPath();
+        ctx.moveTo(fx, fy);
+        ctx.lineTo(fx, fy - 18 * s);
+        ctx.stroke();
+        // Petals
+        const colors = ['#FF6B9D', '#FFB347', '#87CEEB', '#DDA0DD'];
+        ctx.fillStyle = colors[Math.floor(this.x) % colors.length];
+        for (let i = 0; i < 5; i++) {
+          const angle = (i / 5) * Math.PI * 2 - Math.PI / 2;
+          const px = fx + Math.cos(angle) * 5 * s;
+          const py = fy - 18 * s + Math.sin(angle) * 5 * s;
+          ctx.beginPath();
+          ctx.ellipse(px, py, 4 * s, 3 * s, angle, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        // Center
+        ctx.fillStyle = '#FFE14D';
+        ctx.beginPath();
+        ctx.arc(fx, fy - 18 * s, 3 * s, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+  }
+
+  class DirtPattern {
+    constructor() {
+      this.dots = [];
+      for (let i = 0; i < 30; i++) {
+        this.dots.push({
+          x: Math.random() * (GAME_WIDTH + 200),
+          y: GROUND_Y + 8 + Math.random() * 80,
+          size: 1 + Math.random() * 3,
+          shade: Math.random() > 0.5 ? COLORS.dirtDot : COLORS.groundBottom
+        });
+      }
+    }
+    update() {
+      for (let d of this.dots) {
+        d.x -= gameSpeed;
+        if (d.x < -10) {
+          d.x = GAME_WIDTH + Math.random() * 50;
+          d.y = GROUND_Y + 8 + Math.random() * 80;
+        }
+      }
+    }
+    draw() {
+      for (let d of this.dots) {
+        ctx.fillStyle = d.shade;
+        ctx.beginPath();
+        ctx.arc(d.x, d.y, d.size, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
+
+  let clouds = [];
+  let bushes = [];
+  let dirtPattern = null;
+  let bgScrollX = 0;
+
+  function initBackground() {
+    clouds = [];
+    bushes = [];
+    for (let i = 0; i < 5; i++) clouds.push(new Cloud());
+    for (let i = 0; i < 8; i++) bushes.push(new BackgroundBush());
+    dirtPattern = new DirtPattern();
+  }
+
+  function updateBackground() {
+    bgScrollX += gameSpeed;
+    for (let c of clouds) c.update();
+    for (let b of bushes) b.update();
+    dirtPattern.update();
+  }
+
+  function drawBackground() {
+    // Sky gradient
+    const skyGrad = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
+    skyGrad.addColorStop(0, COLORS.skyTop);
+    skyGrad.addColorStop(1, COLORS.skyBottom);
+    ctx.fillStyle = skyGrad;
+    ctx.fillRect(0, 0, GAME_WIDTH, GROUND_Y);
+
+    // Sun
+    ctx.fillStyle = COLORS.sunGlow;
+    ctx.beginPath();
+    ctx.arc(650, 70, 50, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = COLORS.sun;
+    ctx.beginPath();
+    ctx.arc(650, 70, 28, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Clouds
+    for (let c of clouds) c.draw();
+
+    // Background bushes
+    for (let b of bushes) b.draw();
+
+    // Ground
+    const groundGrad = ctx.createLinearGradient(0, GROUND_Y, 0, GAME_HEIGHT);
+    groundGrad.addColorStop(0, COLORS.groundTop);
+    groundGrad.addColorStop(0.1, COLORS.groundMid);
+    groundGrad.addColorStop(1, COLORS.groundBottom);
+    ctx.fillStyle = groundGrad;
+    ctx.fillRect(0, GROUND_Y, GAME_WIDTH, GAME_HEIGHT - GROUND_Y);
+
+    // Grass line on top of ground
+    ctx.fillStyle = COLORS.grass;
+    ctx.fillRect(0, GROUND_Y - 3, GAME_WIDTH, 6);
+    // Grass tufts
+    for (let i = 0; i < GAME_WIDTH; i += 15) {
+      const offset = (i + bgScrollX * 0.8) % GAME_WIDTH;
+      const gx = (GAME_WIDTH - offset) % GAME_WIDTH;
+      const h = 5 + Math.sin(i * 0.3) * 3;
+      ctx.fillStyle = COLORS.grass;
+      ctx.beginPath();
+      ctx.moveTo(gx - 3, GROUND_Y);
+      ctx.lineTo(gx, GROUND_Y - h);
+      ctx.lineTo(gx + 3, GROUND_Y);
+      ctx.fill();
+    }
+
+    // Dirt texture dots
+    dirtPattern.draw();
+
+    // Ground line
+    ctx.strokeStyle = 'rgba(0,0,0,0.15)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, GROUND_Y);
+    ctx.lineTo(GAME_WIDTH, GROUND_Y);
+    ctx.stroke();
+  }
+
+  // ============================================================
+  // PLAYER - Chick
+  // ============================================================
+
+  class Player {
+    constructor() {
+      this.x = PLAYER_X;
+      this.y = GROUND_Y;
+      this.width = 30;
+      this.height = 32;
+      this.vy = 0;
+      this.isJumping = false;
+      this.isSliding = false;
+      this.slideTimer = 0;
+      this.runFrame = 0;
+      this.runTimer = 0;
+      this.blinkTimer = 0;
+      this.isBlinking = false;
+      this.alive = true;
+      this.deathTimer = 0;
+      this.jumpCount = 0;
+    }
+
+    get hitbox() {
+      if (this.isSliding) {
+        return { x: this.x - 15, y: this.y - 12, w: 30, h: 12 };
+      }
+      return { x: this.x - 14, y: this.y - 32, w: 28, h: 32 };
+    }
+
+    jump() {
+      if (!this.isJumping && !this.isSliding) {
+        this.vy = JUMP_FORCE;
+        this.isJumping = true;
+        this.jumpCount++;
+        spawnDust(this.x, this.y, 5);
+      }
+    }
+
+    slide() {
+      if (!this.isJumping && !this.isSliding) {
+        this.isSliding = true;
+        this.slideTimer = 30;
+      }
+    }
+
+    die() {
+      if (this.alive) {
+        this.alive = false;
+        this.deathTimer = 0;
+        screenShake = 15;
+        spawnDust(this.x, this.y, 15);
+      }
+    }
+
+    update() {
+      if (!this.alive) {
+        this.deathTimer++;
+        if (this.deathTimer > 60) {
+          gameState = STATE.GAMEOVER;
+          if (score > highScore) highScore = score;
+        }
+        return;
+      }
+
+      // Jumping physics
+      if (this.isJumping) {
+        this.vy += GRAVITY;
+        this.y += this.vy;
+        if (this.y >= GROUND_Y) {
+          this.y = GROUND_Y;
+          this.isJumping = false;
+          this.vy = 0;
+          spawnDust(this.x, this.y, 3);
+        }
+      }
+
+      // Sliding
+      if (this.isSliding) {
+        this.slideTimer--;
+        if (this.slideTimer <= 0) {
+          this.isSliding = false;
+        }
+      }
+
+      // Run animation
+      this.runTimer++;
+      if (this.runTimer > 5) {
+        this.runTimer = 0;
+        this.runFrame = (this.runFrame + 1) % 4;
+      }
+
+      // Blink
+      this.blinkTimer++;
+      if (!this.isBlinking && this.blinkTimer > 100 + Math.random() * 80) {
+        this.isBlinking = true;
+        this.blinkTimer = 0;
+      }
+      if (this.isBlinking && this.blinkTimer > 8) {
+        this.isBlinking = false;
+        this.blinkTimer = 0;
+      }
+
+      // Running dust particles
+      if (!this.isJumping && frameCount % 8 === 0) {
+        spawnDust(this.x - 8, this.y, 1);
+      }
+    }
+
+    draw() {
+      ctx.save();
+      const px = this.x;
+      const py = this.y;
+
+      if (!this.alive) {
+        // Death animation - spin and fade
+        const t = this.deathTimer / 60;
+        ctx.globalAlpha = 1 - t;
+        ctx.translate(px, py - 16);
+        ctx.rotate(t * Math.PI * 4);
+        ctx.translate(-px, -(py - 16));
+      }
+
+      if (this.isSliding) {
+        this.drawSliding(px, py);
+      } else {
+        this.drawRunning(px, py);
+      }
+
+      ctx.restore();
+    }
+
+    drawRunning(px, py) {
+      const legOffset = this.isJumping ? 3 : Math.sin(this.runFrame * Math.PI / 2) * 5;
+      const bodyBob = this.isJumping ? 0 : Math.abs(Math.sin(this.runFrame * Math.PI / 2)) * 2;
+
+      // Shadow
+      ctx.fillStyle = 'rgba(0,0,0,0.15)';
+      ctx.beginPath();
+      ctx.ellipse(px, py + 1, 16, 4, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Feet
+      const footColor = COLORS.chick.feet;
+      ctx.fillStyle = footColor;
+      // Left foot
+      ctx.beginPath();
+      ctx.ellipse(px - 5 + legOffset * 0.3, py - 2, 6, 3, -0.2, 0, Math.PI * 2);
+      ctx.fill();
+      // Right foot
+      ctx.beginPath();
+      ctx.ellipse(px + 5 - legOffset * 0.3, py - 2, 6, 3, 0.2, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Body
+      const by = py - 18 - bodyBob;
+      ctx.fillStyle = COLORS.chick.body;
+      ctx.beginPath();
+      ctx.ellipse(px, by, 14, 16, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Body shading
+      ctx.fillStyle = COLORS.chick.bodyDark;
+      ctx.beginPath();
+      ctx.ellipse(px + 2, by + 5, 10, 8, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Wings
+      const wingFlap = this.isJumping ? -3 : Math.sin(this.runFrame * Math.PI / 2) * 4;
+      // Left wing
+      ctx.fillStyle = COLORS.chick.bodyDark;
+      ctx.beginPath();
+      ctx.ellipse(px - 12, by - 2 + wingFlap, 5, 8, -0.4, 0, Math.PI * 2);
+      ctx.fill();
+      // Right wing
+      ctx.beginPath();
+      ctx.ellipse(px + 12, by - 2 - wingFlap, 5, 8, 0.4, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Cheeks
+      ctx.fillStyle = COLORS.chick.cheek;
+      ctx.beginPath();
+      ctx.ellipse(px - 10, by + 3, 4, 3, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(px + 10, by + 3, 4, 3, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Eyes
+      const eyeY = by - 4;
+      ctx.fillStyle = '#FFFFFF';
+      ctx.beginPath();
+      ctx.ellipse(px - 6, eyeY, 5, 5, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(px + 6, eyeY, 5, 5, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      if (this.isBlinking) {
+        ctx.strokeStyle = COLORS.chick.eye;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(px - 9, eyeY);
+        ctx.lineTo(px - 3, eyeY);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(px + 3, eyeY);
+        ctx.lineTo(px + 9, eyeY);
+        ctx.stroke();
+      } else {
+        ctx.fillStyle = COLORS.chick.eye;
+        ctx.beginPath();
+        ctx.arc(px - 5, eyeY + 1, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(px + 5, eyeY + 1, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+        // Eye highlights
+        ctx.fillStyle = '#FFFFFF';
+        ctx.beginPath();
+        ctx.arc(px - 4, eyeY, 1, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(px + 6, eyeY, 1, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Beak
+      ctx.fillStyle = COLORS.chick.beak;
+      ctx.beginPath();
+      ctx.moveTo(px - 3, by + 1);
+      ctx.lineTo(px, by + 7);
+      ctx.lineTo(px + 3, by + 1);
+      ctx.closePath();
+      ctx.fill();
+
+      // Head tuft
+      ctx.fillStyle = COLORS.chick.body;
+      ctx.beginPath();
+      ctx.ellipse(px - 2, by - 16, 3, 5, -0.3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(px + 2, by - 17, 2, 4, 0.3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    drawSliding(px, py) {
+      // Sliding - chick is flat on the ground
+      // Shadow
+      ctx.fillStyle = 'rgba(0,0,0,0.15)';
+      ctx.beginPath();
+      ctx.ellipse(px, py + 1, 18, 5, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Body (stretched out)
+      ctx.fillStyle = COLORS.chick.body;
+      ctx.beginPath();
+      ctx.ellipse(px, py - 8, 18, 8, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Body shading
+      ctx.fillStyle = COLORS.chick.bodyDark;
+      ctx.beginPath();
+      ctx.ellipse(px + 3, py - 5, 12, 5, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Eye
+      ctx.fillStyle = '#FFFFFF';
+      ctx.beginPath();
+      ctx.ellipse(px + 10, py - 12, 4, 4, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = COLORS.chick.eye;
+      ctx.beginPath();
+      ctx.arc(px + 11, py - 11, 2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#FFFFFF';
+      ctx.beginPath();
+      ctx.arc(px + 12, py - 12, 0.8, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Beak
+      ctx.fillStyle = COLORS.chick.beak;
+      ctx.beginPath();
+      ctx.moveTo(px + 14, py - 10);
+      ctx.lineTo(px + 20, py - 8);
+      ctx.lineTo(px + 14, py - 7);
+      ctx.closePath();
+      ctx.fill();
+
+      // Feet
+      ctx.fillStyle = COLORS.chick.feet;
+      ctx.beginPath();
+      ctx.ellipse(px - 12, py - 3, 5, 2, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(px - 6, py - 3, 5, 2, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Speed lines
+      ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+      ctx.lineWidth = 1;
+      for (let i = 0; i < 3; i++) {
+        const ly = py - 6 + i * 4;
+        const lx = px - 25 - i * 5;
+        ctx.beginPath();
+        ctx.moveTo(lx, ly);
+        ctx.lineTo(lx - 15, ly);
+        ctx.stroke();
+      }
+    }
+  }
+
+  // ============================================================
+  // OBSTACLES
+  // ============================================================
+
+  class Obstacle {
+    constructor(x, type) {
+      this.x = x;
+      this.type = type; // 'rock' or 'branch'
+      this.passed = false;
+      if (this.type === 'rock') {
+        this.width = 30;
+        this.height = 28;
+        this.y = GROUND_Y - this.height;
+      } else {
+        this.width = 45;
+        this.height = 16;
+        this.y = GROUND_Y - 42;
+      }
+    }
+
+    get hitbox() {
+      const pad = 5;
+      if (this.type === 'rock') {
+        return { x: this.x - this.width / 2 + pad, y: this.y + pad, w: this.width - pad * 2, h: this.height - pad };
+      }
+      return { x: this.x - this.width / 2 + pad, y: this.y + pad, w: this.width - pad * 2, h: this.height - pad * 2 };
+    }
+
+    update() {
+      this.x -= gameSpeed;
+    }
+
+    draw() {
+      if (this.type === 'rock') {
+        this.drawRock();
+      } else {
+        this.drawBranch();
+      }
+    }
+
+    drawRock() {
+      const rx = this.x;
+      const ry = this.y;
+      const rw = this.width;
+      const rh = this.height;
+
+      // Rock shadow
+      ctx.fillStyle = 'rgba(0,0,0,0.1)';
+      ctx.beginPath();
+      ctx.ellipse(rx, GROUND_Y + 1, rw / 2 + 3, 4, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Main rock body
+      ctx.fillStyle = COLORS.rock;
+      ctx.beginPath();
+      ctx.moveTo(rx - rw / 2, GROUND_Y);
+      ctx.lineTo(rx - rw / 2 + 3, ry + rh * 0.3);
+      ctx.quadraticCurveTo(rx - rw / 4, ry, rx, ry - 3);
+      ctx.quadraticCurveTo(rx + rw / 4, ry, rx + rw / 2 - 2, ry + rh * 0.35);
+      ctx.lineTo(rx + rw / 2, GROUND_Y);
+      ctx.closePath();
+      ctx.fill();
+
+      // Rock highlight
+      ctx.fillStyle = COLORS.rockLight;
+      ctx.beginPath();
+      ctx.ellipse(rx - 3, ry + 6, 5, 4, -0.3, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Rock dark spot
+      ctx.fillStyle = COLORS.rockDark;
+      ctx.beginPath();
+      ctx.ellipse(rx + 5, ry + 10, 4, 3, 0.3, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Small pebbles
+      ctx.fillStyle = COLORS.rock;
+      ctx.beginPath();
+      ctx.arc(rx + rw / 2 + 8, GROUND_Y - 3, 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = COLORS.rockDark;
+      ctx.beginPath();
+      ctx.arc(rx + rw / 2 + 14, GROUND_Y - 2, 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    drawBranch() {
+      const bx = this.x;
+      const by = this.y;
+      const bw = this.width;
+      const bh = this.height;
+
+      // Supports (two sticks holding the branch)
+      ctx.strokeStyle = COLORS.branch;
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(bx - bw / 2 + 2, by + bh);
+      ctx.lineTo(bx - bw / 2 + 2, GROUND_Y);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(bx + bw / 2 - 2, by + bh);
+      ctx.lineTo(bx + bw / 2 - 2, GROUND_Y);
+      ctx.stroke();
+
+      // Main branch
+      ctx.fillStyle = COLORS.branch;
+      ctx.beginPath();
+      ctx.roundRect(bx - bw / 2, by, bw, bh, 4);
+      ctx.fill();
+
+      // Branch highlight
+      ctx.fillStyle = COLORS.branchLight;
+      ctx.fillRect(bx - bw / 2 + 3, by + 2, bw - 6, 3);
+
+      // Leaves on branch
+      ctx.fillStyle = '#5DA832';
+      ctx.beginPath();
+      ctx.ellipse(bx - 5, by - 2, 6, 4, -0.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(bx + 8, by - 1, 5, 3, 0.5, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Danger indicator
+      ctx.fillStyle = 'rgba(255,100,100,0.6)';
+      ctx.font = '12px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('⚠', bx, by - 8);
+    }
+  }
+
+  let obstacles = [];
+
+  function spawnObstacle() {
+    const minGap = 200 - Math.min(distance / 100, 80);
+    if (obstacles.length === 0 || (GAME_WIDTH - obstacles[obstacles.length - 1].x) > minGap + Math.random() * 150) {
+      const type = Math.random() > 0.5 ? 'rock' : 'branch';
+      obstacles.push(new Obstacle(GAME_WIDTH + 50, type));
+    }
+  }
+
+  // ============================================================
+  // COLLECTIBLES
+  // ============================================================
+
+  class Collectible {
+    constructor(x, y) {
+      this.x = x;
+      this.y = y;
+      this.width = 18;
+      this.height = 14;
+      this.collected = false;
+      this.bobOffset = Math.random() * Math.PI * 2;
+      this.sparkleTimer = 0;
+    }
+
+    get hitbox() {
+      return { x: this.x - this.width / 2, y: this.y - this.height / 2, w: this.width, h: this.height };
+    }
+
+    update() {
+      this.x -= gameSpeed;
+      this.bobOffset += 0.08;
+      this.sparkleTimer++;
+    }
+
+    draw() {
+      if (this.collected) return;
+      const bx = this.x;
+      const by = this.y + Math.sin(this.bobOffset) * 3;
+
+      // Glow
+      ctx.fillStyle = 'rgba(255,180,220,0.3)';
+      ctx.beginPath();
+      ctx.arc(bx, by, 12, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Worm body
+      const wiggle = Math.sin(this.bobOffset * 2) * 3;
+      ctx.strokeStyle = COLORS.worm;
+      ctx.lineWidth = 5;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(bx - 8, by + 2);
+      ctx.quadraticCurveTo(bx - 2, by + wiggle, bx + 4, by);
+      ctx.stroke();
+
+      // Worm head
+      ctx.fillStyle = COLORS.worm;
+      ctx.beginPath();
+      ctx.arc(bx + 6, by - 1, 4, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Worm highlight
+      ctx.fillStyle = COLORS.wormLight;
+      ctx.beginPath();
+      ctx.arc(bx + 5, by - 2, 1.5, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Eye
+      ctx.fillStyle = '#2D1B00';
+      ctx.beginPath();
+      ctx.arc(bx + 8, by - 2, 1, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Sparkle
+      if (this.sparkleTimer % 30 < 5) {
+        ctx.fillStyle = 'rgba(255,255,200,0.8)';
+        drawStar(bx + 10, by - 6, 3, 2, 4);
+      }
+    }
+  }
+
+  let collectibles = [];
+
+  function spawnCollectible() {
+    const minGap = 120;
+    if (collectibles.length === 0 || (GAME_WIDTH - collectibles[collectibles.length - 1].x) > minGap + Math.random() * 100) {
+      const y = GROUND_Y - 15 - Math.random() * 40;
+      collectibles.push(new Collectible(GAME_WIDTH + 50, y));
+    }
+  }
+
+  function drawStar(cx, cy, outerR, innerR, points) {
+    ctx.beginPath();
+    for (let i = 0; i < points * 2; i++) {
+      const r = i % 2 === 0 ? outerR : innerR;
+      const angle = (i * Math.PI) / points - Math.PI / 2;
+      const x = cx + Math.cos(angle) * r;
+      const y = cy + Math.sin(angle) * r;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // ============================================================
+  // PARTICLES
+  // ============================================================
+
+  class DustParticle {
+    constructor(x, y, vx, vy) {
+      this.x = x;
+      this.y = y;
+      this.vx = vx;
+      this.vy = vy;
+      this.life = 1;
+      this.decay = 0.02 + Math.random() * 0.03;
+      this.size = 2 + Math.random() * 3;
+    }
+    update() {
+      this.x += this.vx;
+      this.y += this.vy;
+      this.vy += 0.05;
+      this.life -= this.decay;
+    }
+    draw() {
+      ctx.save();
+      ctx.globalAlpha = this.life * 0.6;
+      ctx.fillStyle = '#C4A55A';
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, this.size * this.life, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  function spawnDust(x, y, count) {
+    for (let i = 0; i < count; i++) {
+      dustParticles.push(new DustParticle(
+        x + (Math.random() - 0.5) * 10,
+        y - Math.random() * 5,
+        -Math.random() * 2 - 0.5,
+        -Math.random() * 2
+      ));
+    }
+  }
+
+  class CollectEffect {
+    constructor(x, y) {
+      this.x = x;
+      this.y = y;
+      this.life = 1;
+      this.particles = [];
+      for (let i = 0; i < 8; i++) {
+        const angle = (i / 8) * Math.PI * 2;
+        this.particles.push({
+          x: x, y: y,
+          vx: Math.cos(angle) * 3,
+          vy: Math.sin(angle) * 3,
+          size: 2 + Math.random() * 2
+        });
+      }
+    }
+    update() {
+      this.life -= 0.03;
+      for (let p of this.particles) {
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vy -= 0.05;
+      }
+    }
+    draw() {
+      ctx.save();
+      ctx.globalAlpha = this.life;
+      for (let p of this.particles) {
+        ctx.fillStyle = COLORS.wormLight;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size * this.life, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      // Score popup
+      ctx.fillStyle = COLORS.ui.score;
+      ctx.font = 'bold 14px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('+10', this.x, this.y - 15 - (1 - this.life) * 20);
+      ctx.restore();
+    }
+  }
+
+  // ============================================================
+  // COLLISION DETECTION
+  // ============================================================
+
+  function checkCollision(a, b) {
+    return a.x < b.x + b.w &&
+           a.x + a.w > b.x &&
+           a.y < b.y + b.h &&
+           a.y + a.h > b.y;
+  }
+
+  // ============================================================
+  // UI SCREENS
+  // ============================================================
+
+  function drawHUD() {
+    ctx.save();
+
+    // Score background
+    ctx.fillStyle = COLORS.ui.bg;
+    ctx.beginPath();
+    ctx.roundRect(10, 10, 200, 50, 10);
+    ctx.fill();
+
+    // Score
+    ctx.fillStyle = COLORS.ui.accent;
+    ctx.font = 'bold 16px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText('🐛 점수', 22, 30);
+    ctx.fillStyle = COLORS.ui.text;
+    ctx.font = 'bold 18px sans-serif';
+    ctx.fillText(score.toString(), 22, 50);
+
+    // Distance
+    ctx.fillStyle = COLORS.ui.accent;
+    ctx.font = 'bold 16px sans-serif';
+    ctx.fillText('📏 거리', 110, 30);
+    ctx.fillStyle = COLORS.ui.text;
+    ctx.font = 'bold 18px sans-serif';
+    ctx.fillText(Math.floor(distance) + 'm', 110, 50);
+
+    ctx.restore();
+  }
+
+  function drawMenuScreen() {
+    // Dim overlay
+    ctx.fillStyle = 'rgba(0,0,0,0.4)';
+    ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+
+    // Title card
+    const cx = GAME_WIDTH / 2;
+    const cy = GAME_HEIGHT / 2 - 40;
+
+    // Card background
+    ctx.fillStyle = 'rgba(139,105,20,0.9)';
+    ctx.beginPath();
+    ctx.roundRect(cx - 180, cy - 80, 360, 200, 20);
+    ctx.fill();
+    ctx.strokeStyle = '#FFE14D';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.roundRect(cx - 180, cy - 80, 360, 200, 20);
+    ctx.stroke();
+
+    // Title
+    ctx.fillStyle = COLORS.ui.accent;
+    ctx.font = 'bold 36px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('🐣 흙속의 병아리', cx, cy - 30);
+
+    ctx.fillStyle = COLORS.ui.text;
+    ctx.font = 'bold 18px sans-serif';
+    ctx.fillText('Dirt Chick Runner', cx, cy);
+
+    // Start prompt
+    const pulse = Math.sin(frameCount * 0.05) * 0.3 + 0.7;
+    ctx.globalAlpha = pulse;
+    ctx.fillStyle = COLORS.ui.accent;
+    ctx.font = 'bold 20px sans-serif';
+    ctx.fillText('터치하거나 스페이스를 눌러 시작!', cx, cy + 50);
+    ctx.globalAlpha = 1;
+
+    // Controls info
+    ctx.fillStyle = 'rgba(255,255,255,0.6)';
+    ctx.font = '13px sans-serif';
+    ctx.fillText('⬆/스페이스: 점프 | ⬇: 슬라이드', cx, cy + 90);
+
+    // High score
+    if (highScore > 0) {
+      ctx.fillStyle = COLORS.ui.score;
+      ctx.font = 'bold 16px sans-serif';
+      ctx.fillText('🏆 최고 점수: ' + highScore, cx, cy + 115);
+    }
+  }
+
+  function drawGameOverScreen() {
+    // Dim overlay
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+
+    const cx = GAME_WIDTH / 2;
+    const cy = GAME_HEIGHT / 2 - 30;
+
+    // Card
+    ctx.fillStyle = 'rgba(80,30,10,0.9)';
+    ctx.beginPath();
+    ctx.roundRect(cx - 160, cy - 70, 320, 200, 20);
+    ctx.fill();
+    ctx.strokeStyle = '#FF6B35';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.roundRect(cx - 160, cy - 70, 320, 200, 20);
+    ctx.stroke();
+
+    // Game Over text
+    ctx.fillStyle = '#FF6B35';
+    ctx.font = 'bold 32px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('💀 꽝!', cx, cy - 25);
+
+    // Stats
+    ctx.fillStyle = COLORS.ui.text;
+    ctx.font = 'bold 18px sans-serif';
+    ctx.fillText('점수: ' + score, cx, cy + 15);
+    ctx.fillText('거리: ' + Math.floor(distance) + 'm', cx, cy + 45);
+
+    if (score >= highScore && score > 0) {
+      ctx.fillStyle = COLORS.ui.score;
+      ctx.font = 'bold 16px sans-serif';
+      ctx.fillText('🏆 새 최고 기록!', cx, cy + 70);
+    }
+
+    // Restart prompt
+    const pulse = Math.sin(frameCount * 0.05) * 0.3 + 0.7;
+    ctx.globalAlpha = pulse;
+    ctx.fillStyle = COLORS.ui.accent;
+    ctx.font = 'bold 18px sans-serif';
+    ctx.fillText('터치하거나 스페이스로 다시 시작!', cx, cy + 105);
+    ctx.globalAlpha = 1;
+  }
+
+  // ============================================================
+  // GAME LOGIC
+  // ============================================================
+
+  let player = null;
+
+  function initGame() {
+    player = new Player();
+    obstacles = [];
+    collectibles = [];
+    dustParticles = [];
+    collectEffects = [];
+    gameSpeed = INITIAL_SPEED;
+    distance = 0;
+    score = 0;
+    frameCount = 0;
+    screenShake = 0;
+    initBackground();
+  }
+
+  function startGame() {
+    initGame();
+    gameState = STATE.PLAYING;
+  }
+
+  function updateGame() {
+    frameCount++;
+
+    // Speed increase
+    gameSpeed = Math.min(INITIAL_SPEED + distance * SPEED_INCREMENT, MAX_SPEED);
+
+    // Distance
+    distance += gameSpeed * 0.05;
+
+    // Update all
+    updateBackground();
+    player.update();
+
+    // Spawn obstacles
+    if (frameCount % 60 === 0 || Math.random() < 0.01 * (gameSpeed / INITIAL_SPEED)) {
+      spawnObstacle();
+    }
+
+    // Spawn collectibles
+    if (Math.random() < 0.02) {
+      spawnCollectible();
+    }
+
+    // Update obstacles
+    for (let obs of obstacles) {
+      obs.update();
+      if (player.alive && checkCollision(player.hitbox, obs.hitbox)) {
+        player.die();
+      }
+    }
+    obstacles = obstacles.filter(o => o.x > -60);
+
+    // Update collectibles
+    for (let col of collectibles) {
+      col.update();
+      if (!col.collected && player.alive && checkCollision(player.hitbox, col.hitbox)) {
+        col.collected = true;
+        score += 10;
+        collectEffects.push(new CollectEffect(col.x, col.y));
+      }
+    }
+    collectibles = collectibles.filter(c => c.x > -30 && !c.collected);
+
+    // Update particles
+    for (let p of dustParticles) p.update();
+    dustParticles = dustParticles.filter(p => p.life > 0);
+
+    for (let e of collectEffects) e.update();
+    collectEffects = collectEffects.filter(e => e.life > 0);
+
+    // Screen shake decay
+    if (screenShake > 0) screenShake *= 0.85;
+    if (screenShake < 0.5) screenShake = 0;
+  }
+
+  function drawGame() {
+    ctx.save();
+
+    // Screen shake
+    if (screenShake > 0) {
+      ctx.translate(
+        (Math.random() - 0.5) * screenShake,
+        (Math.random() - 0.5) * screenShake
+      );
+    }
+
+    // Clear
+    ctx.clearRect(-10, -10, GAME_WIDTH + 20, GAME_HEIGHT + 20);
+
+    // Background
+    drawBackground();
+
+    // Collectibles
+    for (let col of collectibles) col.draw();
+
+    // Obstacles
+    for (let obs of obstacles) obs.draw();
+
+    // Player
+    player.draw();
+
+    // Particles
+    for (let p of dustParticles) p.draw();
+    for (let e of collectEffects) e.draw();
+
+    // HUD
+    drawHUD();
+
+    ctx.restore();
+  }
+
+  // ============================================================
+  // MAIN LOOP
+  // ============================================================
+
+  function gameLoop() {
+    switch (gameState) {
+      case STATE.MENU:
+        frameCount++;
+        updateBackground();
+        ctx.clearRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+        drawBackground();
+        drawMenuScreen();
+        break;
+
+      case STATE.PLAYING:
+        updateGame();
+        drawGame();
+        break;
+
+      case STATE.GAMEOVER:
+        frameCount++;
+        // Slow down background
+        gameSpeed *= 0.98;
+        updateBackground();
+        drawGame();
+        drawGameOverScreen();
+        break;
+    }
+
+    requestAnimationFrame(gameLoop);
+  }
+
+  // ============================================================
+  // INPUT HANDLING
+  // ============================================================
+
+  // Touch / Swipe
+  let touchStartY = 0;
+  let touchHandled = false;
+
+  canvas.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    touchStartY = e.touches[0].clientY;
+    touchHandled = false;
+    handleInput();
+  }, { passive: false });
+
+  canvas.addEventListener('touchmove', (e) => {
+    e.preventDefault();
+    const dy = e.touches[0].clientY - touchStartY;
+    if (Math.abs(dy) > 30 && !touchHandled) {
+      touchHandled = true;
+      if (dy > 0) {
+        // Swipe down - slide
+        if (gameState === STATE.PLAYING && player) {
+          player.slide();
+        }
+      }
+    }
+  }, { passive: false });
+
+  canvas.addEventListener('touchend', (e) => {
+    e.preventDefault();
+  }, { passive: false });
+
+  // Mouse / Click
+  canvas.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    handleInput();
+  });
+
+  // Keyboard
+  const keys = {};
+  document.addEventListener('keydown', (e) => {
+    if (e.repeat) return;
+    keys[e.code] = true;
+
+    if (e.code === 'Space' || e.code === 'ArrowUp') {
+      e.preventDefault();
+      handleInput('jump');
+    }
+    if (e.code === 'ArrowDown') {
+      e.preventDefault();
+      handleInput('slide');
+    }
+  });
+
+  document.addEventListener('keyup', (e) => {
+    keys[e.code] = false;
+  });
+
+  function handleInput(action) {
+    switch (gameState) {
+      case STATE.MENU:
+        startGame();
+        break;
+      case STATE.PLAYING:
+        if (player && player.alive) {
+          if (action === 'slide') {
+            player.slide();
+          } else {
+            player.jump();
+          }
+        }
+        break;
+      case STATE.GAMEOVER:
+        startGame();
+        break;
+    }
+  }
+
+  // ============================================================
+  // INIT & START
+  // ============================================================
+
+  initGame();
+  gameLoop();
+  </script>
+</body>
+</html>
