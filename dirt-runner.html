@@ -1,3 +1,4 @@
+<!-- 흙속의 병아리(엔드리스 러너) — Web Audio 사운드 + 파워업(자석/실드) + 콤보 + 최고기록 고도화판. 단일 HTML, 캔버스 기반 -->
 <!DOCTYPE html>
 <html lang="ko">
 <head>
@@ -21,14 +22,21 @@
       display: block;
       image-rendering: pixelated;
     }
+    #snd {
+      position: fixed; top: 12px; right: 12px; z-index: 10;
+      width: 42px; height: 42px; border-radius: 50%; border: none;
+      background: rgba(0,0,0,0.45); color: #fff; font-size: 20px; cursor: pointer;
+    }
   </style>
 </head>
 <body>
   <canvas id="gameCanvas"></canvas>
+  <button id="snd">🔊</button>
   <script>
   // ============================================================
-  // 🐥 흙속의 병아리 (Dirt Chick Runner)
-  // Super Penguins inspired endless runner prototype
+  // 🐥 흙속의 병아리 (Dirt Chick Runner) — 고도화판
+  // Super Penguins inspired endless runner
+  // 추가: WebAudio 사운드/BGM, 파워업(자석/실드), 콤보, 근접회피, 최고기록 저장
   // ============================================================
 
   const canvas = document.getElementById('gameCanvas');
@@ -63,6 +71,10 @@
   const MAX_SPEED = 10;
   const SPEED_INCREMENT = 0.0003;
   const PLAYER_X = 100;
+  const COMBO_WINDOW = 150;   // 콤보 유지 프레임(~2.5s) — 지나면 콤보 데케이
+  const MAGNET_TIME = 420;    // 자석 지속 프레임(~7s)
+  const SHIELD_TIME = 720;    // 실드 최대 지속(~12s, 또는 1회 피격 시 소모)
+  const HS_KEY = 'dirtrunner_highscore_v1';
 
   // --- Game State ---
   const STATE = { MENU: 0, PLAYING: 1, GAMEOVER: 2 };
@@ -72,11 +84,15 @@
   let score = 0;
   let highScore = 0;
   let frameCount = 0;
-  let lastObstacleX = 0;
-  let lastCollectibleX = 0;
   let dustParticles = [];
   let collectEffects = [];
   let screenShake = 0;
+  let comboCount = 0;
+  let comboTimer = 0;
+  let isNewRecord = false;
+  let soundOn = true;
+
+  try { highScore = parseInt(localStorage.getItem(HS_KEY), 10) || 0; } catch (e) { highScore = 0; }
 
   // --- Color Palette ---
   const COLORS = {
@@ -101,17 +117,97 @@
     worm: '#E88FBF',
     wormDark: '#D070A0',
     wormLight: '#FFB0D8',
+    magnet: '#E8443A',
+    magnetTip: '#DDDDDD',
+    shield: '#5BB8FF',
     ui: { bg: 'rgba(0,0,0,0.5)', text: '#FFFFFF', accent: '#FFE14D', score: '#FFD700' }
   };
+
+  // ============================================================
+  // SOUND — WebAudio 합성 SFX + 간이 BGM (에셋 없음)
+  // ============================================================
+
+  let ac = null;
+  function audio() {
+    if (!ac) { try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} }
+    if (ac && ac.state === 'suspended') ac.resume();
+    return ac;
+  }
+  function tone(freq, dur, type, vol, delay) {
+    if (!soundOn) return;
+    const a = audio(); if (!a) return;
+    type = type || 'sine'; vol = vol == null ? 0.12 : vol; delay = delay || 0;
+    const t = a.currentTime + delay;
+    const o = a.createOscillator(), g = a.createGain();
+    o.type = type; o.frequency.setValueAtTime(freq, t);
+    o.connect(g); g.connect(a.destination);
+    g.gain.setValueAtTime(vol, t);
+    g.gain.exponentialRampToValueAtTime(0.0008, t + dur);
+    o.start(t); o.stop(t + dur);
+  }
+  function sweep(f1, f2, dur, type, vol) {
+    if (!soundOn) return;
+    const a = audio(); if (!a) return;
+    const t = a.currentTime;
+    const o = a.createOscillator(), g = a.createGain();
+    o.type = type || 'sine';
+    o.frequency.setValueAtTime(f1, t);
+    o.frequency.exponentialRampToValueAtTime(f2, t + dur);
+    o.connect(g); g.connect(a.destination);
+    g.gain.setValueAtTime(vol == null ? 0.12 : vol, t);
+    g.gain.exponentialRampToValueAtTime(0.0008, t + dur);
+    o.start(t); o.stop(t + dur);
+  }
+  function noiseBurst(dur, vol) {
+    if (!soundOn) return;
+    const a = audio(); if (!a) return;
+    const len = Math.floor(a.sampleRate * dur);
+    const buf = a.createBuffer(1, len, a.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / len);
+    const src = a.createBufferSource(); src.buffer = buf;
+    const g = a.createGain(); g.gain.value = vol == null ? 0.2 : vol;
+    src.connect(g); g.connect(a.destination);
+    src.start();
+  }
+  const sndJump = () => sweep(360, 720, 0.18, 'sine', 0.10);
+  const sndSlide = () => noiseBurst(0.18, 0.10);
+  const sndCollect = (c) => { tone(660 + Math.min(c, 6) * 70, 0.10, 'triangle', 0.12); tone(990 + Math.min(c, 6) * 90, 0.08, 'sine', 0.06, 0.02); };
+  const sndPower = () => [0, 1, 2, 3].forEach(i => tone(523 * (1 + i * 0.25), 0.12, 'square', 0.08, i * 0.05));
+  const sndShieldHit = () => { sweep(900, 200, 0.25, 'sine', 0.16); noiseBurst(0.12, 0.10); };
+  const sndHit = () => { noiseBurst(0.3, 0.25); tone(140, 0.35, 'sawtooth', 0.16); };
+  const sndNearMiss = () => tone(1200, 0.06, 'sine', 0.07);
+  const sndRecord = () => [523, 659, 784, 1046, 1318].forEach((f, i) => tone(f, 0.16, 'triangle', 0.12, i * 0.09));
+
+  // --- 간이 BGM 스텝 시퀀서 ---
+  let bgmInterval = null, bgmStep = 0;
+  const BGM_BASS = [131, 131, 165, 196];                 // C E G 베이스
+  const BGM_ARP = [523, 659, 784, 659, 523, 784, 988, 784];
+  function bgmTick() {
+    if (!soundOn) return;
+    // 베이스 (4스텝마다)
+    if (bgmStep % 2 === 0) tone(BGM_BASS[(bgmStep / 2) % BGM_BASS.length], 0.18, 'triangle', 0.05);
+    // 아르페지오 (속도 빠를수록 등장)
+    if (gameSpeed > INITIAL_SPEED + 1.5) tone(BGM_ARP[bgmStep % BGM_ARP.length], 0.12, 'square', 0.035);
+    // 고속 레이어
+    if (gameSpeed > MAX_SPEED - 2.5) tone(BGM_ARP[bgmStep % BGM_ARP.length] * 2, 0.08, 'sine', 0.025, 0.06);
+    bgmStep++;
+  }
+  function startBgm() {
+    if (bgmInterval) return;
+    bgmStep = 0;
+    bgmInterval = setInterval(bgmTick, 200);
+  }
+  function stopBgm() {
+    if (bgmInterval) { clearInterval(bgmInterval); bgmInterval = null; }
+  }
 
   // ============================================================
   // BACKGROUND - Parallax layers
   // ============================================================
 
   class Cloud {
-    constructor() {
-      this.reset(true);
-    }
+    constructor() { this.reset(true); }
     reset(initial) {
       this.x = initial ? Math.random() * GAME_WIDTH : GAME_WIDTH + Math.random() * 200;
       this.y = 30 + Math.random() * 100;
@@ -144,9 +240,7 @@
   }
 
   class BackgroundBush {
-    constructor() {
-      this.reset(true);
-    }
+    constructor() { this.reset(true); }
     reset(initial) {
       this.x = initial ? Math.random() * GAME_WIDTH : GAME_WIDTH + Math.random() * 100;
       this.type = Math.random() > 0.5 ? 'bush' : 'flower';
@@ -174,14 +268,12 @@
         const s = this.size;
         const fx = this.x;
         const fy = GROUND_Y;
-        // Stem
         ctx.strokeStyle = '#4A8A28';
         ctx.lineWidth = 2 * s;
         ctx.beginPath();
         ctx.moveTo(fx, fy);
         ctx.lineTo(fx, fy - 18 * s);
         ctx.stroke();
-        // Petals
         const colors = ['#FF6B9D', '#FFB347', '#87CEEB', '#DDA0DD'];
         ctx.fillStyle = colors[Math.floor(this.x) % colors.length];
         for (let i = 0; i < 5; i++) {
@@ -192,7 +284,6 @@
           ctx.ellipse(px, py, 4 * s, 3 * s, angle, 0, Math.PI * 2);
           ctx.fill();
         }
-        // Center
         ctx.fillStyle = '#FFE14D';
         ctx.beginPath();
         ctx.arc(fx, fy - 18 * s, 3 * s, 0, Math.PI * 2);
@@ -254,14 +345,12 @@
   }
 
   function drawBackground() {
-    // Sky gradient
     const skyGrad = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
     skyGrad.addColorStop(0, COLORS.skyTop);
     skyGrad.addColorStop(1, COLORS.skyBottom);
     ctx.fillStyle = skyGrad;
     ctx.fillRect(0, 0, GAME_WIDTH, GROUND_Y);
 
-    // Sun
     ctx.fillStyle = COLORS.sunGlow;
     ctx.beginPath();
     ctx.arc(650, 70, 50, 0, Math.PI * 2);
@@ -271,13 +360,9 @@
     ctx.arc(650, 70, 28, 0, Math.PI * 2);
     ctx.fill();
 
-    // Clouds
     for (let c of clouds) c.draw();
-
-    // Background bushes
     for (let b of bushes) b.draw();
 
-    // Ground
     const groundGrad = ctx.createLinearGradient(0, GROUND_Y, 0, GAME_HEIGHT);
     groundGrad.addColorStop(0, COLORS.groundTop);
     groundGrad.addColorStop(0.1, COLORS.groundMid);
@@ -285,10 +370,8 @@
     ctx.fillStyle = groundGrad;
     ctx.fillRect(0, GROUND_Y, GAME_WIDTH, GAME_HEIGHT - GROUND_Y);
 
-    // Grass line on top of ground
     ctx.fillStyle = COLORS.grass;
     ctx.fillRect(0, GROUND_Y - 3, GAME_WIDTH, 6);
-    // Grass tufts
     for (let i = 0; i < GAME_WIDTH; i += 15) {
       const offset = (i + bgScrollX * 0.8) % GAME_WIDTH;
       const gx = (GAME_WIDTH - offset) % GAME_WIDTH;
@@ -301,10 +384,8 @@
       ctx.fill();
     }
 
-    // Dirt texture dots
     dirtPattern.draw();
 
-    // Ground line
     ctx.strokeStyle = 'rgba(0,0,0,0.15)';
     ctx.lineWidth = 1;
     ctx.beginPath();
@@ -334,7 +415,13 @@
       this.alive = true;
       this.deathTimer = 0;
       this.jumpCount = 0;
+      this.shield = false;
+      this.shieldTimer = 0;
+      this.magnetTimer = 0;
+      this.invincible = 0;
     }
+
+    get hasMagnet() { return this.magnetTimer > 0; }
 
     get hitbox() {
       if (this.isSliding) {
@@ -349,6 +436,7 @@
         this.isJumping = true;
         this.jumpCount++;
         spawnDust(this.x, this.y, 5);
+        sndJump();
       }
     }
 
@@ -356,7 +444,27 @@
       if (!this.isJumping && !this.isSliding) {
         this.isSliding = true;
         this.slideTimer = 30;
+        sndSlide();
       }
+    }
+
+    giveShield() { this.shield = true; this.shieldTimer = SHIELD_TIME; }
+    giveMagnet() { this.magnetTimer = MAGNET_TIME; }
+
+    // 피격 처리: 실드 있으면 흡수, 없으면 사망. 흡수했으면 true.
+    onHit() {
+      if (this.invincible > 0) return true;
+      if (this.shield) {
+        this.shield = false; this.shieldTimer = 0;
+        this.invincible = 50;
+        screenShake = 8;
+        sndShieldHit();
+        spawnDust(this.x, this.y, 10);
+        comboCount = 0;
+        return true;
+      }
+      this.die();
+      return false;
     }
 
     die() {
@@ -365,6 +473,8 @@
         this.deathTimer = 0;
         screenShake = 15;
         spawnDust(this.x, this.y, 15);
+        sndHit();
+        stopBgm();
       }
     }
 
@@ -373,12 +483,15 @@
         this.deathTimer++;
         if (this.deathTimer > 60) {
           gameState = STATE.GAMEOVER;
-          if (score > highScore) highScore = score;
+          finalizeRun();
         }
         return;
       }
 
-      // Jumping physics
+      if (this.invincible > 0) this.invincible--;
+      if (this.shieldTimer > 0) { this.shieldTimer--; if (this.shieldTimer === 0) this.shield = false; }
+      if (this.magnetTimer > 0) this.magnetTimer--;
+
       if (this.isJumping) {
         this.vy += GRAVITY;
         this.y += this.vy;
@@ -390,36 +503,26 @@
         }
       }
 
-      // Sliding
       if (this.isSliding) {
         this.slideTimer--;
-        if (this.slideTimer <= 0) {
-          this.isSliding = false;
-        }
+        if (this.slideTimer <= 0) this.isSliding = false;
       }
 
-      // Run animation
       this.runTimer++;
       if (this.runTimer > 5) {
         this.runTimer = 0;
         this.runFrame = (this.runFrame + 1) % 4;
       }
 
-      // Blink
       this.blinkTimer++;
       if (!this.isBlinking && this.blinkTimer > 100 + Math.random() * 80) {
-        this.isBlinking = true;
-        this.blinkTimer = 0;
+        this.isBlinking = true; this.blinkTimer = 0;
       }
       if (this.isBlinking && this.blinkTimer > 8) {
-        this.isBlinking = false;
-        this.blinkTimer = 0;
+        this.isBlinking = false; this.blinkTimer = 0;
       }
 
-      // Running dust particles
-      if (!this.isJumping && frameCount % 8 === 0) {
-        spawnDust(this.x - 8, this.y, 1);
-      }
+      if (!this.isJumping && frameCount % 8 === 0) spawnDust(this.x - 8, this.y, 1);
     }
 
     draw() {
@@ -428,71 +531,89 @@
       const py = this.y;
 
       if (!this.alive) {
-        // Death animation - spin and fade
         const t = this.deathTimer / 60;
         ctx.globalAlpha = 1 - t;
         ctx.translate(px, py - 16);
         ctx.rotate(t * Math.PI * 4);
         ctx.translate(-px, -(py - 16));
+      } else if (this.invincible > 0 && Math.floor(this.invincible / 4) % 2 === 0) {
+        ctx.globalAlpha = 0.5;
       }
 
-      if (this.isSliding) {
-        this.drawSliding(px, py);
-      } else {
-        this.drawRunning(px, py);
-      }
+      if (this.isSliding) this.drawSliding(px, py);
+      else this.drawRunning(px, py);
 
       ctx.restore();
+
+      // 자석 오라
+      if (this.hasMagnet && this.alive) {
+        ctx.save();
+        ctx.globalAlpha = 0.18 + Math.sin(frameCount * 0.2) * 0.07;
+        ctx.strokeStyle = COLORS.magnet;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(px, py - 16, 60, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      // 실드 버블
+      if (this.shield && this.alive) {
+        ctx.save();
+        const r = 26 + Math.sin(frameCount * 0.15) * 2;
+        ctx.globalAlpha = 0.35 + Math.sin(frameCount * 0.15) * 0.1;
+        ctx.strokeStyle = COLORS.shield;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(px, py - 14, r, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.globalAlpha = 0.12;
+        ctx.fillStyle = COLORS.shield;
+        ctx.beginPath();
+        ctx.arc(px, py - 14, r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
     }
 
     drawRunning(px, py) {
       const legOffset = this.isJumping ? 3 : Math.sin(this.runFrame * Math.PI / 2) * 5;
       const bodyBob = this.isJumping ? 0 : Math.abs(Math.sin(this.runFrame * Math.PI / 2)) * 2;
 
-      // Shadow
       ctx.fillStyle = 'rgba(0,0,0,0.15)';
       ctx.beginPath();
       ctx.ellipse(px, py + 1, 16, 4, 0, 0, Math.PI * 2);
       ctx.fill();
 
-      // Feet
       const footColor = COLORS.chick.feet;
       ctx.fillStyle = footColor;
-      // Left foot
       ctx.beginPath();
       ctx.ellipse(px - 5 + legOffset * 0.3, py - 2, 6, 3, -0.2, 0, Math.PI * 2);
       ctx.fill();
-      // Right foot
       ctx.beginPath();
       ctx.ellipse(px + 5 - legOffset * 0.3, py - 2, 6, 3, 0.2, 0, Math.PI * 2);
       ctx.fill();
 
-      // Body
       const by = py - 18 - bodyBob;
       ctx.fillStyle = COLORS.chick.body;
       ctx.beginPath();
       ctx.ellipse(px, by, 14, 16, 0, 0, Math.PI * 2);
       ctx.fill();
 
-      // Body shading
       ctx.fillStyle = COLORS.chick.bodyDark;
       ctx.beginPath();
       ctx.ellipse(px + 2, by + 5, 10, 8, 0, 0, Math.PI * 2);
       ctx.fill();
 
-      // Wings
       const wingFlap = this.isJumping ? -3 : Math.sin(this.runFrame * Math.PI / 2) * 4;
-      // Left wing
       ctx.fillStyle = COLORS.chick.bodyDark;
       ctx.beginPath();
       ctx.ellipse(px - 12, by - 2 + wingFlap, 5, 8, -0.4, 0, Math.PI * 2);
       ctx.fill();
-      // Right wing
       ctx.beginPath();
       ctx.ellipse(px + 12, by - 2 - wingFlap, 5, 8, 0.4, 0, Math.PI * 2);
       ctx.fill();
 
-      // Cheeks
       ctx.fillStyle = COLORS.chick.cheek;
       ctx.beginPath();
       ctx.ellipse(px - 10, by + 3, 4, 3, 0, 0, Math.PI * 2);
@@ -501,7 +622,6 @@
       ctx.ellipse(px + 10, by + 3, 4, 3, 0, 0, Math.PI * 2);
       ctx.fill();
 
-      // Eyes
       const eyeY = by - 4;
       ctx.fillStyle = '#FFFFFF';
       ctx.beginPath();
@@ -515,32 +635,18 @@
         ctx.strokeStyle = COLORS.chick.eye;
         ctx.lineWidth = 1.5;
         ctx.beginPath();
-        ctx.moveTo(px - 9, eyeY);
-        ctx.lineTo(px - 3, eyeY);
-        ctx.stroke();
+        ctx.moveTo(px - 9, eyeY); ctx.lineTo(px - 3, eyeY); ctx.stroke();
         ctx.beginPath();
-        ctx.moveTo(px + 3, eyeY);
-        ctx.lineTo(px + 9, eyeY);
-        ctx.stroke();
+        ctx.moveTo(px + 3, eyeY); ctx.lineTo(px + 9, eyeY); ctx.stroke();
       } else {
         ctx.fillStyle = COLORS.chick.eye;
-        ctx.beginPath();
-        ctx.arc(px - 5, eyeY + 1, 2.5, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.beginPath();
-        ctx.arc(px + 5, eyeY + 1, 2.5, 0, Math.PI * 2);
-        ctx.fill();
-        // Eye highlights
+        ctx.beginPath(); ctx.arc(px - 5, eyeY + 1, 2.5, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(px + 5, eyeY + 1, 2.5, 0, Math.PI * 2); ctx.fill();
         ctx.fillStyle = '#FFFFFF';
-        ctx.beginPath();
-        ctx.arc(px - 4, eyeY, 1, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.beginPath();
-        ctx.arc(px + 6, eyeY, 1, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.beginPath(); ctx.arc(px - 4, eyeY, 1, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(px + 6, eyeY, 1, 0, Math.PI * 2); ctx.fill();
       }
 
-      // Beak
       ctx.fillStyle = COLORS.chick.beak;
       ctx.beginPath();
       ctx.moveTo(px - 3, by + 1);
@@ -549,7 +655,6 @@
       ctx.closePath();
       ctx.fill();
 
-      // Head tuft
       ctx.fillStyle = COLORS.chick.body;
       ctx.beginPath();
       ctx.ellipse(px - 2, by - 16, 3, 5, -0.3, 0, Math.PI * 2);
@@ -560,26 +665,21 @@
     }
 
     drawSliding(px, py) {
-      // Sliding - chick is flat on the ground
-      // Shadow
       ctx.fillStyle = 'rgba(0,0,0,0.15)';
       ctx.beginPath();
       ctx.ellipse(px, py + 1, 18, 5, 0, 0, Math.PI * 2);
       ctx.fill();
 
-      // Body (stretched out)
       ctx.fillStyle = COLORS.chick.body;
       ctx.beginPath();
       ctx.ellipse(px, py - 8, 18, 8, 0, 0, Math.PI * 2);
       ctx.fill();
 
-      // Body shading
       ctx.fillStyle = COLORS.chick.bodyDark;
       ctx.beginPath();
       ctx.ellipse(px + 3, py - 5, 12, 5, 0, 0, Math.PI * 2);
       ctx.fill();
 
-      // Eye
       ctx.fillStyle = '#FFFFFF';
       ctx.beginPath();
       ctx.ellipse(px + 10, py - 12, 4, 4, 0, 0, Math.PI * 2);
@@ -593,7 +693,6 @@
       ctx.arc(px + 12, py - 12, 0.8, 0, Math.PI * 2);
       ctx.fill();
 
-      // Beak
       ctx.fillStyle = COLORS.chick.beak;
       ctx.beginPath();
       ctx.moveTo(px + 14, py - 10);
@@ -602,7 +701,6 @@
       ctx.closePath();
       ctx.fill();
 
-      // Feet
       ctx.fillStyle = COLORS.chick.feet;
       ctx.beginPath();
       ctx.ellipse(px - 12, py - 3, 5, 2, 0, 0, Math.PI * 2);
@@ -611,7 +709,6 @@
       ctx.ellipse(px - 6, py - 3, 5, 2, 0, 0, Math.PI * 2);
       ctx.fill();
 
-      // Speed lines
       ctx.strokeStyle = 'rgba(255,255,255,0.4)';
       ctx.lineWidth = 1;
       for (let i = 0; i < 3; i++) {
@@ -634,14 +731,11 @@
       this.x = x;
       this.type = type; // 'rock' or 'branch'
       this.passed = false;
+      this.scored = false;
       if (this.type === 'rock') {
-        this.width = 30;
-        this.height = 28;
-        this.y = GROUND_Y - this.height;
+        this.width = 30; this.height = 28; this.y = GROUND_Y - this.height;
       } else {
-        this.width = 45;
-        this.height = 16;
-        this.y = GROUND_Y - 42;
+        this.width = 45; this.height = 16; this.y = GROUND_Y - 42;
       }
     }
 
@@ -653,31 +747,16 @@
       return { x: this.x - this.width / 2 + pad, y: this.y + pad, w: this.width - pad * 2, h: this.height - pad * 2 };
     }
 
-    update() {
-      this.x -= gameSpeed;
-    }
+    update() { this.x -= gameSpeed; }
 
-    draw() {
-      if (this.type === 'rock') {
-        this.drawRock();
-      } else {
-        this.drawBranch();
-      }
-    }
+    draw() { if (this.type === 'rock') this.drawRock(); else this.drawBranch(); }
 
     drawRock() {
-      const rx = this.x;
-      const ry = this.y;
-      const rw = this.width;
-      const rh = this.height;
-
-      // Rock shadow
+      const rx = this.x, ry = this.y, rw = this.width, rh = this.height;
       ctx.fillStyle = 'rgba(0,0,0,0.1)';
       ctx.beginPath();
       ctx.ellipse(rx, GROUND_Y + 1, rw / 2 + 3, 4, 0, 0, Math.PI * 2);
       ctx.fill();
-
-      // Main rock body
       ctx.fillStyle = COLORS.rock;
       ctx.beginPath();
       ctx.moveTo(rx - rw / 2, GROUND_Y);
@@ -687,20 +766,14 @@
       ctx.lineTo(rx + rw / 2, GROUND_Y);
       ctx.closePath();
       ctx.fill();
-
-      // Rock highlight
       ctx.fillStyle = COLORS.rockLight;
       ctx.beginPath();
       ctx.ellipse(rx - 3, ry + 6, 5, 4, -0.3, 0, Math.PI * 2);
       ctx.fill();
-
-      // Rock dark spot
       ctx.fillStyle = COLORS.rockDark;
       ctx.beginPath();
       ctx.ellipse(rx + 5, ry + 10, 4, 3, 0.3, 0, Math.PI * 2);
       ctx.fill();
-
-      // Small pebbles
       ctx.fillStyle = COLORS.rock;
       ctx.beginPath();
       ctx.arc(rx + rw / 2 + 8, GROUND_Y - 3, 4, 0, Math.PI * 2);
@@ -712,12 +785,7 @@
     }
 
     drawBranch() {
-      const bx = this.x;
-      const by = this.y;
-      const bw = this.width;
-      const bh = this.height;
-
-      // Supports (two sticks holding the branch)
+      const bx = this.x, by = this.y, bw = this.width, bh = this.height;
       ctx.strokeStyle = COLORS.branch;
       ctx.lineWidth = 4;
       ctx.beginPath();
@@ -728,18 +796,12 @@
       ctx.moveTo(bx + bw / 2 - 2, by + bh);
       ctx.lineTo(bx + bw / 2 - 2, GROUND_Y);
       ctx.stroke();
-
-      // Main branch
       ctx.fillStyle = COLORS.branch;
       ctx.beginPath();
       ctx.roundRect(bx - bw / 2, by, bw, bh, 4);
       ctx.fill();
-
-      // Branch highlight
       ctx.fillStyle = COLORS.branchLight;
       ctx.fillRect(bx - bw / 2 + 3, by + 2, bw - 6, 3);
-
-      // Leaves on branch
       ctx.fillStyle = '#5DA832';
       ctx.beginPath();
       ctx.ellipse(bx - 5, by - 2, 6, 4, -0.5, 0, Math.PI * 2);
@@ -747,8 +809,6 @@
       ctx.beginPath();
       ctx.ellipse(bx + 8, by - 1, 5, 3, 0.5, 0, Math.PI * 2);
       ctx.fill();
-
-      // Danger indicator
       ctx.fillStyle = 'rgba(255,100,100,0.6)';
       ctx.font = '12px sans-serif';
       ctx.textAlign = 'center';
@@ -767,70 +827,53 @@
   }
 
   // ============================================================
-  // COLLECTIBLES
+  // COLLECTIBLES (worms)
   // ============================================================
 
   class Collectible {
     constructor(x, y) {
-      this.x = x;
-      this.y = y;
-      this.width = 18;
-      this.height = 14;
+      this.x = x; this.y = y;
+      this.width = 18; this.height = 14;
       this.collected = false;
       this.bobOffset = Math.random() * Math.PI * 2;
       this.sparkleTimer = 0;
     }
-
     get hitbox() {
       return { x: this.x - this.width / 2, y: this.y - this.height / 2, w: this.width, h: this.height };
     }
-
     update() {
       this.x -= gameSpeed;
       this.bobOffset += 0.08;
       this.sparkleTimer++;
+      // 자석: 플레이어 쪽으로 끌려옴
+      if (player && player.hasMagnet && player.alive) {
+        const dx = player.x - this.x, dy = (player.y - 16) - this.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist < 150) {
+          this.x += (dx / dist) * 6;
+          this.y += (dy / dist) * 6;
+        }
+      }
     }
-
     draw() {
       if (this.collected) return;
       const bx = this.x;
       const by = this.y + Math.sin(this.bobOffset) * 3;
-
-      // Glow
       ctx.fillStyle = 'rgba(255,180,220,0.3)';
-      ctx.beginPath();
-      ctx.arc(bx, by, 12, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Worm body
+      ctx.beginPath(); ctx.arc(bx, by, 12, 0, Math.PI * 2); ctx.fill();
       const wiggle = Math.sin(this.bobOffset * 2) * 3;
       ctx.strokeStyle = COLORS.worm;
-      ctx.lineWidth = 5;
-      ctx.lineCap = 'round';
+      ctx.lineWidth = 5; ctx.lineCap = 'round';
       ctx.beginPath();
       ctx.moveTo(bx - 8, by + 2);
       ctx.quadraticCurveTo(bx - 2, by + wiggle, bx + 4, by);
       ctx.stroke();
-
-      // Worm head
       ctx.fillStyle = COLORS.worm;
-      ctx.beginPath();
-      ctx.arc(bx + 6, by - 1, 4, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Worm highlight
+      ctx.beginPath(); ctx.arc(bx + 6, by - 1, 4, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = COLORS.wormLight;
-      ctx.beginPath();
-      ctx.arc(bx + 5, by - 2, 1.5, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Eye
+      ctx.beginPath(); ctx.arc(bx + 5, by - 2, 1.5, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = '#2D1B00';
-      ctx.beginPath();
-      ctx.arc(bx + 8, by - 2, 1, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Sparkle
+      ctx.beginPath(); ctx.arc(bx + 8, by - 2, 1, 0, Math.PI * 2); ctx.fill();
       if (this.sparkleTimer % 30 < 5) {
         ctx.fillStyle = 'rgba(255,255,200,0.8)';
         drawStar(bx + 10, by - 6, 3, 2, 4);
@@ -863,32 +906,82 @@
   }
 
   // ============================================================
+  // POWER-UPS (자석 / 실드)
+  // ============================================================
+
+  class PowerUp {
+    constructor(x, y, type) {
+      this.x = x; this.y = y;
+      this.type = type; // 'magnet' | 'shield'
+      this.r = 14;
+      this.collected = false;
+      this.bob = Math.random() * Math.PI * 2;
+    }
+    get hitbox() { return { x: this.x - this.r, y: this.y - this.r, w: this.r * 2, h: this.r * 2 }; }
+    update() { this.x -= gameSpeed; this.bob += 0.1; }
+    draw() {
+      if (this.collected) return;
+      const bx = this.x, by = this.y + Math.sin(this.bob) * 4;
+      // 글로우 캡슐
+      ctx.save();
+      ctx.globalAlpha = 0.25 + Math.sin(this.bob) * 0.1;
+      ctx.fillStyle = this.type === 'magnet' ? COLORS.magnet : COLORS.shield;
+      ctx.beginPath(); ctx.arc(bx, by, this.r + 6, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+      ctx.fillStyle = '#FFFFFF';
+      ctx.beginPath(); ctx.arc(bx, by, this.r, 0, Math.PI * 2); ctx.fill();
+      if (this.type === 'magnet') {
+        // U자 자석
+        ctx.strokeStyle = COLORS.magnet; ctx.lineWidth = 5; ctx.lineCap = 'butt';
+        ctx.beginPath();
+        ctx.arc(bx, by + 1, 7, Math.PI, Math.PI * 2, false);
+        ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(bx - 7, by + 1); ctx.lineTo(bx - 7, by + 7); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(bx + 7, by + 1); ctx.lineTo(bx + 7, by + 7); ctx.stroke();
+        ctx.strokeStyle = COLORS.magnetTip; ctx.lineWidth = 5;
+        ctx.beginPath(); ctx.moveTo(bx - 7, by + 6); ctx.lineTo(bx - 7, by + 9); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(bx + 7, by + 6); ctx.lineTo(bx + 7, by + 9); ctx.stroke();
+      } else {
+        // 방패
+        ctx.fillStyle = COLORS.shield;
+        ctx.beginPath();
+        ctx.moveTo(bx, by - 8);
+        ctx.lineTo(bx + 7, by - 4);
+        ctx.lineTo(bx + 7, by + 3);
+        ctx.quadraticCurveTo(bx, by + 9, bx - 7, by + 3);
+        ctx.lineTo(bx - 7, by - 4);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = '#FFFFFF'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(bx - 3, by); ctx.lineTo(bx - 1, by + 3); ctx.lineTo(bx + 4, by - 3); ctx.stroke();
+      }
+    }
+  }
+
+  let powerups = [];
+
+  function spawnPowerUp() {
+    const y = GROUND_Y - 30 - Math.random() * 50;
+    const type = Math.random() < 0.5 ? 'magnet' : 'shield';
+    powerups.push(new PowerUp(GAME_WIDTH + 50, y, type));
+  }
+
+  // ============================================================
   // PARTICLES
   // ============================================================
 
   class DustParticle {
     constructor(x, y, vx, vy) {
-      this.x = x;
-      this.y = y;
-      this.vx = vx;
-      this.vy = vy;
-      this.life = 1;
-      this.decay = 0.02 + Math.random() * 0.03;
+      this.x = x; this.y = y; this.vx = vx; this.vy = vy;
+      this.life = 1; this.decay = 0.02 + Math.random() * 0.03;
       this.size = 2 + Math.random() * 3;
     }
-    update() {
-      this.x += this.vx;
-      this.y += this.vy;
-      this.vy += 0.05;
-      this.life -= this.decay;
-    }
+    update() { this.x += this.vx; this.y += this.vy; this.vy += 0.05; this.life -= this.decay; }
     draw() {
       ctx.save();
       ctx.globalAlpha = this.life * 0.6;
       ctx.fillStyle = '#C4A55A';
-      ctx.beginPath();
-      ctx.arc(this.x, this.y, this.size * this.life, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.beginPath(); ctx.arc(this.x, this.y, this.size * this.life, 0, Math.PI * 2); ctx.fill();
       ctx.restore();
     }
   }
@@ -905,43 +998,31 @@
   }
 
   class CollectEffect {
-    constructor(x, y) {
-      this.x = x;
-      this.y = y;
-      this.life = 1;
+    constructor(x, y, text, color) {
+      this.x = x; this.y = y; this.life = 1;
+      this.text = text || '+10';
+      this.color = color || COLORS.ui.score;
       this.particles = [];
       for (let i = 0; i < 8; i++) {
         const angle = (i / 8) * Math.PI * 2;
-        this.particles.push({
-          x: x, y: y,
-          vx: Math.cos(angle) * 3,
-          vy: Math.sin(angle) * 3,
-          size: 2 + Math.random() * 2
-        });
+        this.particles.push({ x, y, vx: Math.cos(angle) * 3, vy: Math.sin(angle) * 3, size: 2 + Math.random() * 2 });
       }
     }
     update() {
       this.life -= 0.03;
-      for (let p of this.particles) {
-        p.x += p.vx;
-        p.y += p.vy;
-        p.vy -= 0.05;
-      }
+      for (let p of this.particles) { p.x += p.vx; p.y += p.vy; p.vy -= 0.05; }
     }
     draw() {
       ctx.save();
       ctx.globalAlpha = this.life;
       for (let p of this.particles) {
         ctx.fillStyle = COLORS.wormLight;
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, p.size * this.life, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.size * this.life, 0, Math.PI * 2); ctx.fill();
       }
-      // Score popup
-      ctx.fillStyle = COLORS.ui.score;
+      ctx.fillStyle = this.color;
       ctx.font = 'bold 14px sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText('+10', this.x, this.y - 15 - (1 - this.life) * 20);
+      ctx.fillText(this.text, this.x, this.y - 15 - (1 - this.life) * 20);
       ctx.restore();
     }
   }
@@ -951,10 +1032,7 @@
   // ============================================================
 
   function checkCollision(a, b) {
-    return a.x < b.x + b.w &&
-           a.x + a.w > b.x &&
-           a.y < b.y + b.h &&
-           a.y + a.h > b.y;
+    return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
   }
 
   // ============================================================
@@ -964,13 +1042,11 @@
   function drawHUD() {
     ctx.save();
 
-    // Score background
     ctx.fillStyle = COLORS.ui.bg;
     ctx.beginPath();
-    ctx.roundRect(10, 10, 200, 50, 10);
+    ctx.roundRect(10, 10, 210, 50, 10);
     ctx.fill();
 
-    // Score
     ctx.fillStyle = COLORS.ui.accent;
     ctx.font = 'bold 16px sans-serif';
     ctx.textAlign = 'left';
@@ -979,111 +1055,153 @@
     ctx.font = 'bold 18px sans-serif';
     ctx.fillText(score.toString(), 22, 50);
 
-    // Distance
     ctx.fillStyle = COLORS.ui.accent;
     ctx.font = 'bold 16px sans-serif';
-    ctx.fillText('📏 거리', 110, 30);
+    ctx.fillText('📏 거리', 120, 30);
     ctx.fillStyle = COLORS.ui.text;
     ctx.font = 'bold 18px sans-serif';
-    ctx.fillText(Math.floor(distance) + 'm', 110, 50);
+    ctx.fillText(Math.floor(distance) + 'm', 120, 50);
+
+    // 최고기록
+    ctx.fillStyle = COLORS.ui.score;
+    ctx.font = 'bold 13px sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText('🏆 ' + highScore, GAME_WIDTH - 16, 28);
+
+    // 콤보 표시
+    if (comboCount >= 2) {
+      const pulse = 1 + Math.sin(frameCount * 0.3) * 0.08;
+      ctx.save();
+      ctx.translate(GAME_WIDTH / 2, 44);
+      ctx.scale(pulse, pulse);
+      ctx.fillStyle = COLORS.ui.accent;
+      ctx.font = 'bold 26px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('COMBO ×' + Math.min(comboCount, 5), 0, 0);
+      ctx.restore();
+    }
+
+    // 파워업 잔여 타이머 아이콘
+    let iconX = GAME_WIDTH - 30;
+    const iconY = 50;
+    if (player && player.magnetTimer > 0) {
+      drawPowerIcon(iconX, iconY, 'magnet', player.magnetTimer / MAGNET_TIME);
+      iconX -= 40;
+    }
+    if (player && player.shield) {
+      drawPowerIcon(iconX, iconY, 'shield', player.shieldTimer / SHIELD_TIME);
+    }
 
     ctx.restore();
   }
 
+  function drawPowerIcon(x, y, type, ratio) {
+    ctx.save();
+    ctx.fillStyle = 'rgba(0,0,0,0.45)';
+    ctx.beginPath(); ctx.arc(x, y, 15, 0, Math.PI * 2); ctx.fill();
+    // 잔여 게이지
+    ctx.strokeStyle = type === 'magnet' ? COLORS.magnet : COLORS.shield;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(x, y, 13, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * ratio);
+    ctx.stroke();
+    ctx.fillStyle = '#fff';
+    ctx.font = '14px sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(type === 'magnet' ? '🧲' : '🛡️', x, y + 1);
+    ctx.restore();
+  }
+
   function drawMenuScreen() {
-    // Dim overlay
     ctx.fillStyle = 'rgba(0,0,0,0.4)';
     ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
 
-    // Title card
     const cx = GAME_WIDTH / 2;
     const cy = GAME_HEIGHT / 2 - 40;
 
-    // Card background
     ctx.fillStyle = 'rgba(139,105,20,0.9)';
     ctx.beginPath();
-    ctx.roundRect(cx - 180, cy - 80, 360, 200, 20);
+    ctx.roundRect(cx - 190, cy - 80, 380, 215, 20);
     ctx.fill();
     ctx.strokeStyle = '#FFE14D';
     ctx.lineWidth = 3;
     ctx.beginPath();
-    ctx.roundRect(cx - 180, cy - 80, 360, 200, 20);
+    ctx.roundRect(cx - 190, cy - 80, 380, 215, 20);
     ctx.stroke();
 
-    // Title
     ctx.fillStyle = COLORS.ui.accent;
     ctx.font = 'bold 36px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText('🐣 흙속의 병아리', cx, cy - 30);
+    ctx.fillText('🐣 흙속의 병아리', cx, cy - 34);
 
     ctx.fillStyle = COLORS.ui.text;
-    ctx.font = 'bold 18px sans-serif';
-    ctx.fillText('Dirt Chick Runner', cx, cy);
+    ctx.font = 'bold 16px sans-serif';
+    ctx.fillText('Dirt Chick Runner', cx, cy - 12);
 
-    // Start prompt
     const pulse = Math.sin(frameCount * 0.05) * 0.3 + 0.7;
     ctx.globalAlpha = pulse;
     ctx.fillStyle = COLORS.ui.accent;
     ctx.font = 'bold 20px sans-serif';
-    ctx.fillText('터치하거나 스페이스를 눌러 시작!', cx, cy + 50);
+    ctx.fillText('터치하거나 스페이스를 눌러 시작!', cx, cy + 22);
     ctx.globalAlpha = 1;
 
-    // Controls info
-    ctx.fillStyle = 'rgba(255,255,255,0.6)';
+    ctx.fillStyle = 'rgba(255,255,255,0.7)';
     ctx.font = '13px sans-serif';
-    ctx.fillText('⬆/스페이스: 점프 | ⬇: 슬라이드', cx, cy + 90);
+    ctx.fillText('⬆/스페이스: 점프   ⬇: 슬라이드', cx, cy + 56);
+    ctx.fillText('🧲 자석으로 지렁이 흡입 · 🛡️ 실드로 1회 보호', cx, cy + 78);
 
-    // High score
     if (highScore > 0) {
       ctx.fillStyle = COLORS.ui.score;
       ctx.font = 'bold 16px sans-serif';
-      ctx.fillText('🏆 최고 점수: ' + highScore, cx, cy + 115);
+      ctx.fillText('🏆 최고 점수: ' + highScore, cx, cy + 110);
     }
   }
 
   function drawGameOverScreen() {
-    // Dim overlay
     ctx.fillStyle = 'rgba(0,0,0,0.5)';
     ctx.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
 
     const cx = GAME_WIDTH / 2;
     const cy = GAME_HEIGHT / 2 - 30;
 
-    // Card
     ctx.fillStyle = 'rgba(80,30,10,0.9)';
     ctx.beginPath();
-    ctx.roundRect(cx - 160, cy - 70, 320, 200, 20);
+    ctx.roundRect(cx - 160, cy - 70, 320, 205, 20);
     ctx.fill();
     ctx.strokeStyle = '#FF6B35';
     ctx.lineWidth = 3;
     ctx.beginPath();
-    ctx.roundRect(cx - 160, cy - 70, 320, 200, 20);
+    ctx.roundRect(cx - 160, cy - 70, 320, 205, 20);
     ctx.stroke();
 
-    // Game Over text
     ctx.fillStyle = '#FF6B35';
     ctx.font = 'bold 32px sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText('💀 꽝!', cx, cy - 25);
 
-    // Stats
     ctx.fillStyle = COLORS.ui.text;
     ctx.font = 'bold 18px sans-serif';
-    ctx.fillText('점수: ' + score, cx, cy + 15);
-    ctx.fillText('거리: ' + Math.floor(distance) + 'm', cx, cy + 45);
+    ctx.fillText('점수: ' + score, cx, cy + 12);
+    ctx.fillText('거리: ' + Math.floor(distance) + 'm', cx, cy + 40);
 
-    if (score >= highScore && score > 0) {
+    if (isNewRecord) {
+      const p = Math.sin(frameCount * 0.15) * 0.3 + 0.7;
+      ctx.globalAlpha = p;
       ctx.fillStyle = COLORS.ui.score;
-      ctx.font = 'bold 16px sans-serif';
-      ctx.fillText('🏆 새 최고 기록!', cx, cy + 70);
+      ctx.font = 'bold 18px sans-serif';
+      ctx.fillText('🏆 새 최고 기록!', cx, cy + 68);
+      ctx.globalAlpha = 1;
+    } else {
+      ctx.fillStyle = 'rgba(255,255,255,0.7)';
+      ctx.font = 'bold 14px sans-serif';
+      ctx.fillText('🏆 최고: ' + highScore, cx, cy + 68);
     }
 
-    // Restart prompt
     const pulse = Math.sin(frameCount * 0.05) * 0.3 + 0.7;
     ctx.globalAlpha = pulse;
     ctx.fillStyle = COLORS.ui.accent;
     ctx.font = 'bold 18px sans-serif';
-    ctx.fillText('터치하거나 스페이스로 다시 시작!', cx, cy + 105);
+    ctx.fillText('터치하거나 스페이스로 다시 시작!', cx, cy + 108);
     ctx.globalAlpha = 1;
   }
 
@@ -1097,6 +1215,7 @@
     player = new Player();
     obstacles = [];
     collectibles = [];
+    powerups = [];
     dustParticles = [];
     collectEffects = [];
     gameSpeed = INITIAL_SPEED;
@@ -1104,65 +1223,107 @@
     score = 0;
     frameCount = 0;
     screenShake = 0;
+    comboCount = 0;
+    comboTimer = 0;
+    isNewRecord = false;
     initBackground();
   }
 
   function startGame() {
     initGame();
     gameState = STATE.PLAYING;
+    audio();
+    startBgm();
+  }
+
+  function finalizeRun() {
+    if (score > highScore) {
+      highScore = score;
+      isNewRecord = true;
+      try { localStorage.setItem(HS_KEY, String(highScore)); } catch (e) {}
+      sndRecord();
+    }
+  }
+
+  function collectWorm(col) {
+    col.collected = true;
+    comboCount++;
+    comboTimer = 0;
+    const mult = Math.min(comboCount, 5);
+    const pts = 10 * mult;
+    score += pts;
+    collectEffects.push(new CollectEffect(col.x, col.y, '+' + pts, mult > 1 ? '#FFD54A' : COLORS.ui.score));
+    sndCollect(comboCount);
   }
 
   function updateGame() {
     frameCount++;
 
-    // Speed increase
     gameSpeed = Math.min(INITIAL_SPEED + distance * SPEED_INCREMENT, MAX_SPEED);
-
-    // Distance
     distance += gameSpeed * 0.05;
 
-    // Update all
+    // 콤보 데케이
+    if (comboCount > 0) {
+      comboTimer++;
+      if (comboTimer > COMBO_WINDOW) { comboCount = 0; comboTimer = 0; }
+    }
+
     updateBackground();
     player.update();
 
-    // Spawn obstacles
-    if (frameCount % 60 === 0 || Math.random() < 0.01 * (gameSpeed / INITIAL_SPEED)) {
-      spawnObstacle();
-    }
+    if (frameCount % 60 === 0 || Math.random() < 0.01 * (gameSpeed / INITIAL_SPEED)) spawnObstacle();
+    if (Math.random() < 0.02) spawnCollectible();
+    // 파워업: 가끔 등장 (~5초마다 확률)
+    if (frameCount % 300 === 0 && Math.random() < 0.7) spawnPowerUp();
 
-    // Spawn collectibles
-    if (Math.random() < 0.02) {
-      spawnCollectible();
-    }
-
-    // Update obstacles
+    // 장애물
     for (let obs of obstacles) {
       obs.update();
-      if (player.alive && checkCollision(player.hitbox, obs.hitbox)) {
-        player.die();
+      if (player.alive && !obs.passed && checkCollision(player.hitbox, obs.hitbox)) {
+        obs.passed = true;
+        player.onHit(); // 실드 있으면 흡수, 없으면 사망
+      }
+      // 근접 회피 보너스 (점프로 아슬하게 스쳐 넘김 — 발과 장애물 윗면 간격이 좁을 때만)
+      if (player.alive && !obs.scored && obs.x < player.x - 20) {
+        obs.scored = true;
+        const gap = obs.y - player.y; // 병아리 발(player.y)이 장애물 윗면(obs.y) 위로 떨어진 거리
+        if (player.isJumping && !obs.passed && gap >= 0 && gap <= 34) {
+          score += 5;
+          collectEffects.push(new CollectEffect(player.x, player.y - 40, '아슬! +5', '#7FE0FF'));
+          sndNearMiss();
+        }
       }
     }
     obstacles = obstacles.filter(o => o.x > -60);
 
-    // Update collectibles
+    // 지렁이
     for (let col of collectibles) {
       col.update();
       if (!col.collected && player.alive && checkCollision(player.hitbox, col.hitbox)) {
-        col.collected = true;
-        score += 10;
-        collectEffects.push(new CollectEffect(col.x, col.y));
+        collectWorm(col);
       }
     }
     collectibles = collectibles.filter(c => c.x > -30 && !c.collected);
 
-    // Update particles
+    // 파워업
+    for (let pu of powerups) {
+      pu.update();
+      if (!pu.collected && player.alive && checkCollision(player.hitbox, pu.hitbox)) {
+        pu.collected = true;
+        if (pu.type === 'magnet') player.giveMagnet();
+        else player.giveShield();
+        collectEffects.push(new CollectEffect(pu.x, pu.y, pu.type === 'magnet' ? '🧲 자석!' : '🛡️ 실드!', '#fff'));
+        sndPower();
+      }
+    }
+    powerups = powerups.filter(p => p.x > -40 && !p.collected);
+
     for (let p of dustParticles) p.update();
     dustParticles = dustParticles.filter(p => p.life > 0);
 
     for (let e of collectEffects) e.update();
     collectEffects = collectEffects.filter(e => e.life > 0);
 
-    // Screen shake decay
     if (screenShake > 0) screenShake *= 0.85;
     if (screenShake < 0.5) screenShake = 0;
   }
@@ -1170,36 +1331,22 @@
   function drawGame() {
     ctx.save();
 
-    // Screen shake
     if (screenShake > 0) {
-      ctx.translate(
-        (Math.random() - 0.5) * screenShake,
-        (Math.random() - 0.5) * screenShake
-      );
+      ctx.translate((Math.random() - 0.5) * screenShake, (Math.random() - 0.5) * screenShake);
     }
 
-    // Clear
     ctx.clearRect(-10, -10, GAME_WIDTH + 20, GAME_HEIGHT + 20);
-
-    // Background
     drawBackground();
 
-    // Collectibles
     for (let col of collectibles) col.draw();
-
-    // Obstacles
+    for (let pu of powerups) pu.draw();
     for (let obs of obstacles) obs.draw();
-
-    // Player
     player.draw();
 
-    // Particles
     for (let p of dustParticles) p.draw();
     for (let e of collectEffects) e.draw();
 
-    // HUD
     drawHUD();
-
     ctx.restore();
   }
 
@@ -1216,22 +1363,18 @@
         drawBackground();
         drawMenuScreen();
         break;
-
       case STATE.PLAYING:
         updateGame();
         drawGame();
         break;
-
       case STATE.GAMEOVER:
         frameCount++;
-        // Slow down background
         gameSpeed *= 0.98;
         updateBackground();
         drawGame();
         drawGameOverScreen();
         break;
     }
-
     requestAnimationFrame(gameLoop);
   }
 
@@ -1239,7 +1382,6 @@
   // INPUT HANDLING
   // ============================================================
 
-  // Touch / Swipe
   let touchStartY = 0;
   let touchHandled = false;
 
@@ -1255,44 +1397,23 @@
     const dy = e.touches[0].clientY - touchStartY;
     if (Math.abs(dy) > 30 && !touchHandled) {
       touchHandled = true;
-      if (dy > 0) {
-        // Swipe down - slide
-        if (gameState === STATE.PLAYING && player) {
-          player.slide();
-        }
-      }
+      if (dy > 0 && gameState === STATE.PLAYING && player) player.slide();
     }
   }, { passive: false });
 
-  canvas.addEventListener('touchend', (e) => {
-    e.preventDefault();
-  }, { passive: false });
+  canvas.addEventListener('touchend', (e) => { e.preventDefault(); }, { passive: false });
 
-  // Mouse / Click
-  canvas.addEventListener('mousedown', (e) => {
-    e.preventDefault();
-    handleInput();
-  });
+  canvas.addEventListener('mousedown', (e) => { e.preventDefault(); handleInput(); });
 
-  // Keyboard
   const keys = {};
   document.addEventListener('keydown', (e) => {
     if (e.repeat) return;
     keys[e.code] = true;
-
-    if (e.code === 'Space' || e.code === 'ArrowUp') {
-      e.preventDefault();
-      handleInput('jump');
-    }
-    if (e.code === 'ArrowDown') {
-      e.preventDefault();
-      handleInput('slide');
-    }
+    if (e.code === 'Space' || e.code === 'ArrowUp') { e.preventDefault(); handleInput('jump'); }
+    if (e.code === 'ArrowDown') { e.preventDefault(); handleInput('slide'); }
+    if (e.code === 'KeyM') toggleSound();
   });
-
-  document.addEventListener('keyup', (e) => {
-    keys[e.code] = false;
-  });
+  document.addEventListener('keyup', (e) => { keys[e.code] = false; });
 
   function handleInput(action) {
     switch (gameState) {
@@ -1301,11 +1422,8 @@
         break;
       case STATE.PLAYING:
         if (player && player.alive) {
-          if (action === 'slide') {
-            player.slide();
-          } else {
-            player.jump();
-          }
+          if (action === 'slide') player.slide();
+          else player.jump();
         }
         break;
       case STATE.GAMEOVER:
@@ -1313,6 +1431,14 @@
         break;
     }
   }
+
+  function toggleSound() {
+    soundOn = !soundOn;
+    document.getElementById('snd').textContent = soundOn ? '🔊' : '🔇';
+    if (soundOn) { audio(); if (gameState === STATE.PLAYING) startBgm(); }
+    else stopBgm();
+  }
+  document.getElementById('snd').addEventListener('click', (e) => { e.stopPropagation(); toggleSound(); });
 
   // ============================================================
   // INIT & START

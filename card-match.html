@@ -1,4 +1,4 @@
-<!-- 같은 그림 맞추기(메모리 카드 게임) 데모 — 단일 HTML, 모바일 세로형, 46종 캐릭터 타일 사용 -->
+<!-- 같은 그림 맞추기(메모리 카드 게임) — 콤보/점수/juice/사운드/최고기록 고도화판. 단일 HTML, 모바일 세로형, 46종 캐릭터 타일 사용 -->
 <!DOCTYPE html>
 <html lang="ko">
 <head>
@@ -12,28 +12,43 @@ html,body{width:100%;height:100%;font-family:'Apple SD Gothic Neo','Malgun Gothi
 .screen{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;}
 .hidden{display:none!important;}
 
+/* ---------- 이펙트 오버레이 ---------- */
+#fx{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:40;}
+#flash{position:absolute;inset:0;pointer-events:none;z-index:35;opacity:0;mix-blend-mode:screen;transition:opacity .12s ease;}
+
 /* ---------- 시작 화면 ---------- */
 #start{justify-content:flex-start;padding-top:46px;background:linear-gradient(180deg,#bfe0f5 0%,#d9f0d8 100%);}
 #start h1{font-size:40px;font-weight:900;color:#3a7bd5;text-align:center;line-height:1.15;text-shadow:2px 3px 0 #fff,4px 6px 0 rgba(0,0,0,.06);letter-spacing:-1px;}
-.levels{margin-top:30px;display:flex;flex-direction:column;gap:18px;width:100%;align-items:center;}
-.lv{width:200px;padding:18px 0;border:none;border-radius:40px;font-size:24px;font-weight:800;color:#fff;cursor:pointer;box-shadow:0 6px 0 rgba(0,0,0,.18),inset 0 3px 0 rgba(255,255,255,.4);transition:transform .08s;}
+.levels{margin-top:26px;display:flex;flex-direction:column;gap:14px;width:100%;align-items:center;}
+.lv{width:210px;padding:15px 0;border:none;border-radius:40px;font-size:22px;font-weight:800;color:#fff;cursor:pointer;box-shadow:0 6px 0 rgba(0,0,0,.18),inset 0 3px 0 rgba(255,255,255,.4);transition:transform .08s;display:flex;flex-direction:column;align-items:center;gap:2px;}
 .lv:active{transform:translateY(4px);box-shadow:0 2px 0 rgba(0,0,0,.18),inset 0 3px 0 rgba(255,255,255,.4);}
+.lv .best{font-size:12px;font-weight:700;opacity:.92;letter-spacing:.3px;}
 .lv.easy{background:#7ac943;}
 .lv.normal{background:#ffa53c;}
 .lv.hard{background:#a96bd8;}
 .mascot{position:absolute;bottom:0;left:0;right:0;display:flex;justify-content:center;align-items:flex-end;pointer-events:none;}
-.mascot img{width:120px;filter:drop-shadow(0 -2px 6px rgba(0,0,0,.08));}
-.speech{position:absolute;bottom:148px;right:20px;background:#fff;border-radius:16px;padding:12px 16px;font-size:13px;color:#666;font-weight:600;box-shadow:0 3px 10px rgba(0,0,0,.12);max-width:160px;line-height:1.4;}
+.mascot img{width:108px;filter:drop-shadow(0 -2px 6px rgba(0,0,0,.08));}
+.speech{position:absolute;bottom:140px;right:18px;background:#fff;border-radius:16px;padding:11px 15px;font-size:13px;color:#666;font-weight:600;box-shadow:0 3px 10px rgba(0,0,0,.12);max-width:160px;line-height:1.4;}
 .speech:after{content:"";position:absolute;bottom:-8px;left:30px;border:8px solid transparent;border-top-color:#fff;border-bottom:0;}
+.sound-toggle{position:absolute;top:16px;right:16px;width:42px;height:42px;border-radius:50%;border:none;background:rgba(255,255,255,.7);font-size:20px;cursor:pointer;box-shadow:0 2px 6px rgba(0,0,0,.12);z-index:50;}
 
 /* ---------- 게임 화면 ---------- */
 #game{background:#eaf4fb;}
-.hud{flex:0 0 auto;width:100%;height:54px;display:flex;align-items:center;gap:10px;padding:0 12px;background:rgba(255,255,255,.7);backdrop-filter:blur(4px);}
-.hud .back{font-size:26px;font-weight:900;color:#3a7bd5;background:none;border:none;cursor:pointer;line-height:1;padding:4px 8px;}
-.hud .stat{display:flex;align-items:center;font-weight:800;font-size:18px;color:#555;}
+.hud{flex:0 0 auto;width:100%;height:52px;display:flex;align-items:center;gap:8px;padding:0 10px;background:rgba(255,255,255,.7);backdrop-filter:blur(4px);}
+.hud .back{font-size:26px;font-weight:900;color:#3a7bd5;background:none;border:none;cursor:pointer;line-height:1;padding:2px 6px;}
+.hud .stat{display:flex;align-items:center;font-weight:800;font-size:15px;color:#555;white-space:nowrap;}
 .hud .hearts{color:#ff5a7a;}
+.hud .score{color:#f2a01e;}
 .hud .pairs{color:#3a7bd5;}
 .hud .time{margin-left:auto;color:#888;font-variant-numeric:tabular-nums;}
+#scoreNum{font-variant-numeric:tabular-nums;transition:transform .12s ease;}
+#scoreNum.bump{transform:scale(1.35);}
+
+/* 콤보 배지 */
+#combo{position:absolute;top:58px;left:50%;transform:translateX(-50%) scale(.6);z-index:38;font-weight:900;font-size:30px;color:#fff;text-shadow:0 2px 0 rgba(0,0,0,.18),0 0 16px rgba(255,180,40,.9);opacity:0;pointer-events:none;letter-spacing:-1px;}
+#combo.show{animation:comboPop .5s ease;}
+@keyframes comboPop{0%{opacity:0;transform:translateX(-50%) scale(.5) rotate(-6deg)}30%{opacity:1;transform:translateX(-50%) scale(1.25) rotate(3deg)}70%{opacity:1;transform:translateX(-50%) scale(1) rotate(0)}100%{opacity:0;transform:translateX(-50%) scale(1)}}
+
 #board{flex:1 1 auto;width:100%;display:grid;gap:8px;padding:12px;align-content:center;grid-template-columns:repeat(var(--cols,4),1fr);overflow:auto;}
 
 .card{aspect-ratio:1/1;perspective:700px;cursor:pointer;}
@@ -47,18 +62,22 @@ html,body{width:100%;height:100%;font-family:'Apple SD Gothic Neo','Malgun Gothi
 .card.matched{animation:pop .4s ease;}
 .card.matched .inner{box-shadow:0 0 0 3px #ffd84d,0 0 14px rgba(255,200,40,.8);border-radius:14px;}
 .card.matched{pointer-events:none;}
-@keyframes pop{0%{transform:scale(1)}40%{transform:scale(1.12)}100%{transform:scale(1)}}
+@keyframes pop{0%{transform:scale(1)}40%{transform:scale(1.14)}100%{transform:scale(1)}}
+.card.wrong{animation:shake .42s ease;}
+@keyframes shake{0%,100%{transform:translateX(0)}20%{transform:translateX(-7px)}40%{transform:translateX(7px)}60%{transform:translateX(-5px)}80%{transform:translateX(5px)}}
 
 /* ---------- 결과 오버레이 ---------- */
-#result{justify-content:center;background:rgba(20,30,50,.55);backdrop-filter:blur(3px);}
-.panel{background:#fff;border-radius:24px;padding:32px 28px;width:280px;text-align:center;box-shadow:0 12px 40px rgba(0,0,0,.3);animation:drop .35s ease;}
+#result{justify-content:center;background:rgba(20,30,50,.55);backdrop-filter:blur(3px);z-index:60;}
+.panel{background:#fff;border-radius:24px;padding:30px 28px;width:286px;text-align:center;box-shadow:0 12px 40px rgba(0,0,0,.3);animation:drop .35s ease;}
 @keyframes drop{from{transform:translateY(-24px);opacity:0}to{transform:translateY(0);opacity:1}}
-.panel h2{font-size:32px;font-weight:900;margin-bottom:8px;}
+.panel h2{font-size:32px;font-weight:900;margin-bottom:6px;}
 .panel.win h2{color:#7ac943;}
 .panel.lose h2{color:#ff5a7a;}
-.panel .emoji{font-size:54px;margin-bottom:6px;}
-.panel p{color:#777;font-size:15px;font-weight:600;line-height:1.6;margin-bottom:22px;}
-.panel button{display:block;width:100%;padding:14px 0;margin-top:10px;border:none;border-radius:30px;font-size:17px;font-weight:800;color:#fff;cursor:pointer;box-shadow:0 4px 0 rgba(0,0,0,.15);}
+.panel .emoji{font-size:52px;margin-bottom:4px;}
+.panel .bigscore{font-size:46px;font-weight:900;color:#f2a01e;line-height:1;margin:6px 0 2px;font-variant-numeric:tabular-nums;}
+.panel .newbest{display:inline-block;margin-bottom:8px;font-size:13px;font-weight:800;color:#fff;background:#ff5a7a;padding:3px 10px;border-radius:20px;animation:pop .5s ease;}
+.panel p{color:#777;font-size:14px;font-weight:600;line-height:1.6;margin-bottom:18px;}
+.panel button{display:block;width:100%;padding:13px 0;margin-top:9px;border:none;border-radius:30px;font-size:17px;font-weight:800;color:#fff;cursor:pointer;box-shadow:0 4px 0 rgba(0,0,0,.15);}
 .panel button:active{transform:translateY(3px);box-shadow:0 1px 0 rgba(0,0,0,.15);}
 .btn-retry{background:#3a7bd5;}
 .btn-home{background:#b9c3cf;}
@@ -67,15 +86,21 @@ html,body{width:100%;height:100%;font-family:'Apple SD Gothic Neo','Malgun Gothi
 <body>
 <div id="wrap">
 
+  <!-- 이펙트 레이어 -->
+  <div id="flash"></div>
+  <canvas id="fx"></canvas>
+  <div id="combo"></div>
+
   <!-- 시작 화면 -->
   <section id="start" class="screen">
+    <button class="sound-toggle" id="btnSound">🔊</button>
     <h1>같은 그림<br>맞추기!</h1>
     <div class="levels">
-      <button class="lv easy"   data-lv="easy">쉬움</button>
-      <button class="lv normal" data-lv="normal">보통</button>
-      <button class="lv hard"   data-lv="hard">어려움</button>
+      <button class="lv easy"   data-lv="easy">쉬움<span class="best" id="best-easy">최고 0</span></button>
+      <button class="lv normal" data-lv="normal">보통<span class="best" id="best-normal">최고 0</span></button>
+      <button class="lv hard"   data-lv="hard">어려움<span class="best" id="best-hard">최고 0</span></button>
     </div>
-    <div class="speech">카드를 두 장씩<br>뒤집어 짝을 맞춰요!</div>
+    <div class="speech">짝을 빨리 연속으로<br>맞출수록 콤보 점수!</div>
     <div class="mascot"><img src="assets/cards/card01.png" alt="마스코트"></div>
   </section>
 
@@ -84,6 +109,7 @@ html,body{width:100%;height:100%;font-family:'Apple SD Gothic Neo','Malgun Gothi
     <div class="hud">
       <button class="back" id="btnBack">‹</button>
       <div class="stat hearts">♥&nbsp;<span id="heart">5</span></div>
+      <div class="stat score">⭐&nbsp;<span id="scoreNum">0</span></div>
       <div class="stat pairs"><span id="found">0</span>/<span id="total">6</span></div>
       <div class="stat time" id="time">0:00</div>
     </div>
@@ -95,6 +121,8 @@ html,body{width:100%;height:100%;font-family:'Apple SD Gothic Neo','Malgun Gothi
     <div class="panel" id="panel">
       <div class="emoji" id="remoji">🎉</div>
       <h2 id="rtitle">클리어!</h2>
+      <div class="bigscore" id="rscore">0</div>
+      <div class="newbest hidden" id="rbest">🏆 신기록!</div>
       <p id="rstat"></p>
       <button class="btn-retry" id="btnRetry">다시하기</button>
       <button class="btn-home" id="btnHome">난이도 선택</button>
@@ -113,16 +141,37 @@ const LEVELS = {
   hard:   { cols:5, pairs:15, hearts:12 },
 };
 const TILE_COUNT = 46; // assets/cards/card01.png ~ card46.png
+const BEST_KEY = 'cardmatch_best_v1';
 
 // ---- DOM ----
 const $ = s => document.querySelector(s);
+const wrap = $('#wrap');
 const startScr = $('#start'), gameScr = $('#game'), resultScr = $('#result');
 const board = $('#board');
 const heartEl = $('#heart'), foundEl = $('#found'), totalEl = $('#total'), timeEl = $('#time');
+const scoreEl = $('#scoreNum'), comboEl = $('#combo'), flashEl = $('#flash');
+const fx = $('#fx'), fxCtx = fx.getContext('2d');
 
 // ---- 상태 ----
 let level, hearts, pairsTotal, pairsFound, lockBoard, first, second;
 let timer = null, seconds = 0;
+let score, combo, maxCombo, mistakes;
+let soundOn = true;
+
+// ---- 최고기록 ----
+function loadBest(){
+  try { return JSON.parse(localStorage.getItem(BEST_KEY)) || {}; }
+  catch(e){ return {}; }
+}
+function getBest(lv){ return loadBest()[lv] || 0; }
+function setBest(lv, val){
+  const b = loadBest(); b[lv] = val;
+  try { localStorage.setItem(BEST_KEY, JSON.stringify(b)); } catch(e){}
+}
+function renderBests(){
+  ['easy','normal','hard'].forEach(lv =>
+    $('#best-' + lv).textContent = '최고 ' + getBest(lv).toLocaleString());
+}
 
 // ---- 유틸 ----
 function shuffle(a){
@@ -133,19 +182,107 @@ function shuffle(a){
   return a;
 }
 function fmt(s){ return Math.floor(s/60) + ':' + String(s%60).padStart(2,'0'); }
+function comboTier(c){ return c >= 5 ? 3 : c >= 3 ? 2 : c >= 2 ? 1 : 0; }
 
-// ---- 사운드(WebAudio 간단 블립, 에셋 없음) ----
+// ---- 사운드(WebAudio 합성, 에셋 없음) ----
 let ac = null;
-function beep(freq, dur, type='sine'){
-  try{
-    ac = ac || new (window.AudioContext||window.webkitAudioContext)();
-    const o = ac.createOscillator(), g = ac.createGain();
-    o.type = type; o.frequency.value = freq;
-    o.connect(g); g.connect(ac.destination);
-    g.gain.setValueAtTime(.12, ac.currentTime);
-    g.gain.exponentialRampToValueAtTime(.001, ac.currentTime + dur);
-    o.start(); o.stop(ac.currentTime + dur);
-  }catch(e){}
+function audio(){
+  if (!ac) { try { ac = new (window.AudioContext||window.webkitAudioContext)(); } catch(e){} }
+  if (ac && ac.state === 'suspended') ac.resume();
+  return ac;
+}
+function tone(freq, dur, type='sine', vol=.12, delay=0){
+  if (!soundOn) return;
+  const a = audio(); if (!a) return;
+  const t = a.currentTime + delay;
+  const o = a.createOscillator(), g = a.createGain();
+  o.type = type; o.frequency.setValueAtTime(freq, t);
+  o.connect(g); g.connect(a.destination);
+  g.gain.setValueAtTime(vol, t);
+  g.gain.exponentialRampToValueAtTime(.0008, t + dur);
+  o.start(t); o.stop(t + dur);
+}
+function sndFlip(){ tone(640, .07, 'sine', .10); }
+function sndMatch(c){
+  // 콤보가 오를수록 피치 상승 + 화음 한 겹
+  const base = 540 + Math.min(c, 8) * 70;
+  tone(base, .12, 'triangle', .13);
+  tone(base * 1.5, .14, 'sine', .08, .03);
+}
+function sndCombo(tier){
+  // 티어 상승 시 짧은 아르페지오
+  const root = 660 + tier * 120;
+  [0, 1, 2].forEach(i => tone(root * (1 + i*0.26), .1, 'square', .07, i*0.05));
+}
+function sndWrong(){
+  tone(200, .18, 'square', .12);
+  tone(150, .22, 'sawtooth', .08, .04);
+}
+function sndWin(){ [523,659,784,1046].forEach((f,i)=>tone(f,.18,'triangle',.13,i*0.1)); }
+function sndLose(){ [392,330,262].forEach((f,i)=>tone(f,.22,'sawtooth',.12,i*0.12)); }
+
+// ---- 이펙트: 파티클 + 플로팅 텍스트 (캔버스 오버레이) ----
+let particles = [], floats = [], fxRunning = false;
+function sizeFx(){
+  fx.width = wrap.clientWidth;
+  fx.height = wrap.clientHeight;
+}
+const PCOLORS = ['#ffd84d','#ff8fb3','#7fd0ff','#9be36b','#ffae5c','#c79bff'];
+function burst(x, y, n, power){
+  for (let i = 0; i < n; i++){
+    const ang = Math.random() * Math.PI * 2;
+    const sp = (1.5 + Math.random() * 3.2) * power;
+    particles.push({
+      x, y, vx: Math.cos(ang)*sp, vy: Math.sin(ang)*sp - 1.5,
+      life: 1, decay: .015 + Math.random()*.02,
+      size: 3 + Math.random()*4, color: PCOLORS[(Math.random()*PCOLORS.length)|0]
+    });
+  }
+  startFx();
+}
+function floatText(x, y, text, color){
+  floats.push({ x, y, text, color, life: 1 });
+  startFx();
+}
+function startFx(){ if (!fxRunning){ fxRunning = true; requestAnimationFrame(fxLoop); } }
+function fxLoop(){
+  fxCtx.clearRect(0, 0, fx.width, fx.height);
+  for (const p of particles){
+    p.x += p.vx; p.y += p.vy; p.vy += .12; p.life -= p.decay;
+    fxCtx.globalAlpha = Math.max(p.life, 0);
+    fxCtx.fillStyle = p.color;
+    fxCtx.beginPath();
+    fxCtx.arc(p.x, p.y, Math.max(p.size * p.life, 0), 0, Math.PI*2);
+    fxCtx.fill();
+  }
+  particles = particles.filter(p => p.life > 0);
+  for (const f of floats){
+    f.y -= 1.1; f.life -= .02;
+    fxCtx.globalAlpha = Math.max(f.life, 0);
+    fxCtx.fillStyle = f.color;
+    fxCtx.font = '900 22px "Apple SD Gothic Neo","Malgun Gothic",sans-serif';
+    fxCtx.textAlign = 'center';
+    fxCtx.fillText(f.text, f.x, f.y);
+  }
+  floats = floats.filter(f => f.life > 0);
+  fxCtx.globalAlpha = 1;
+  if (particles.length || floats.length) requestAnimationFrame(fxLoop);
+  else fxRunning = false;
+}
+function cardCenter(card){
+  const r = card.getBoundingClientRect(), w = wrap.getBoundingClientRect();
+  return { x: r.left - w.left + r.width/2, y: r.top - w.top + r.height/2 };
+}
+function flash(color){
+  flashEl.style.background = color;
+  flashEl.style.opacity = '.5';
+  setTimeout(() => flashEl.style.opacity = '0', 90);
+}
+function showCombo(c){
+  comboEl.textContent = 'COMBO ×' + c;
+  const hue = Math.min(c, 8);
+  comboEl.style.color = ['#fff','#ffe08a','#ffd14d','#ffb04d','#ff8f6b','#ff6bb0','#d98fff','#9bb0ff','#7fe0ff'][hue] || '#7fe0ff';
+  comboEl.classList.remove('show'); void comboEl.offsetWidth; comboEl.classList.add('show');
 }
 
 // ---- 게임 시작 ----
@@ -157,6 +294,7 @@ function startGame(lv){
   pairsFound = 0;
   lockBoard = false; first = null; second = null;
   seconds = 0;
+  score = 0; combo = 0; maxCombo = 0; mistakes = 0;
 
   // 카드 덱 구성: 고유 타일 pairs개 무작위 추출 → 짝 복제 → 셔플
   const ids = shuffle([...Array(TILE_COUNT).keys()].map(i => i + 1)).slice(0, cfg.pairs);
@@ -184,6 +322,8 @@ function startGame(lv){
   foundEl.textContent = 0;
   totalEl.textContent = pairsTotal;
   timeEl.textContent = '0:00';
+  scoreEl.textContent = '0';
+  comboEl.classList.remove('show');
 
   // 타이머
   clearInterval(timer);
@@ -192,6 +332,14 @@ function startGame(lv){
   startScr.classList.add('hidden');
   resultScr.classList.add('hidden');
   gameScr.classList.remove('hidden');
+  sizeFx();
+}
+
+// ---- 점수 반영 ----
+function addScore(pts){
+  score += pts;
+  scoreEl.textContent = score.toLocaleString();
+  scoreEl.classList.remove('bump'); void scoreEl.offsetWidth; scoreEl.classList.add('bump');
 }
 
 // ---- 카드 뒤집기 ----
@@ -202,7 +350,7 @@ function onFlip(card){
   if (card.classList.contains('flip')) return;
 
   card.classList.add('flip');
-  beep(660, .08);
+  sndFlip();
 
   if (!first){ first = card; return; }
 
@@ -210,24 +358,45 @@ function onFlip(card){
   lockBoard = true;
 
   if (first.dataset.id === second.dataset.id){
-    // 일치
+    // 일치 → 콤보 증가, 콤보 배수 점수
     setTimeout(() => {
       first.classList.add('matched');
       second.classList.add('matched');
-      beep(880, .12); beep(1175, .14);
+      combo++;
+      if (combo > maxCombo) maxCombo = combo;
+      const mult = Math.min(combo, 5);
+      const pts = 50 * mult;
+      addScore(pts);
       pairsFound++;
       foundEl.textContent = pairsFound;
+
+      // 사운드 + juice (로직과 함께)
+      sndMatch(combo);
+      const c = cardCenter(second);
+      const tier = comboTier(combo);
+      burst(c.x, c.y, 8 + tier * 6, 1 + tier * 0.4);
+      floatText(c.x, c.y - 18, '+' + pts, '#f2a01e');
+      if (combo >= 2){
+        showCombo(combo);
+        sndCombo(tier);
+        if (tier >= 1) flash('rgba(255,200,80,0.35)');
+        if (tier >= 3){ screenShake(); }
+      }
+
       resetTurn();
       if (pairsFound === pairsTotal) endGame(true);
-    }, 350);
+    }, 320);
   } else {
-    // 불일치 → 하트 감소 후 닫기
-    hearts--;
+    // 불일치 → 콤보 리셋(데케이) + 하트 감소
+    hearts--; mistakes++;
+    combo = 0;
     heartEl.textContent = hearts;
-    beep(180, .2, 'square');
+    sndWrong();
+    first.classList.add('wrong');
+    second.classList.add('wrong');
     setTimeout(() => {
-      first.classList.remove('flip');
-      second.classList.remove('flip');
+      first.classList.remove('flip', 'wrong');
+      second.classList.remove('flip', 'wrong');
       resetTurn();
       if (hearts <= 0) endGame(false);
     }, 850);
@@ -235,17 +404,47 @@ function onFlip(card){
 }
 function resetTurn(){ first = null; second = null; lockBoard = false; }
 
+function screenShake(){
+  wrap.animate(
+    [{transform:'translate(0,0)'},{transform:'translate(-5px,3px)'},{transform:'translate(4px,-3px)'},{transform:'translate(0,0)'}],
+    {duration:240, easing:'ease-in-out'}
+  );
+}
+
 // ---- 종료 ----
 function endGame(win){
   clearInterval(timer);
+
+  // 클리어 보너스: 남은 하트 + 속도 + 무실수 퍼펙트
+  if (win){
+    const heartBonus = hearts * 100;
+    const speedBonus = Math.max(0, 600 - seconds * 4);
+    const perfectBonus = mistakes === 0 ? 500 : 0;
+    score += heartBonus + speedBonus + perfectBonus;
+  }
+  score = Math.round(score);
+
+  const prevBest = getBest(level);
+  const isNewBest = win && score > prevBest;
+  if (isNewBest) setBest(level, score);
+
   const panel = $('#panel');
   panel.className = 'panel ' + (win ? 'win' : 'lose');
-  $('#remoji').textContent = win ? '🎉' : '😢';
-  $('#rtitle').textContent = win ? '클리어!' : '게임 오버';
+  $('#remoji').textContent = win ? (mistakes === 0 ? '🌟' : '🎉') : '😢';
+  $('#rtitle').textContent = win ? (mistakes === 0 ? '퍼펙트 클리어!' : '클리어!') : '게임 오버';
+  $('#rscore').textContent = score.toLocaleString();
+  $('#rbest').classList.toggle('hidden', !isNewBest);
   $('#rstat').innerHTML = win
-    ? '맞춘 짝 ' + pairsTotal + '개<br>걸린 시간 ' + fmt(seconds) + ' · 남은 하트 ♥' + hearts
-    : '아쉬워요! 짝 ' + pairsFound + '/' + pairsTotal + '개<br>다시 도전해 보세요.';
-  setTimeout(() => resultScr.classList.remove('hidden'), 500);
+    ? '최고 콤보 ×' + maxCombo + ' · 시간 ' + fmt(seconds) + '<br>실수 ' + mistakes + '회 · 최고기록 ' + getBest(level).toLocaleString()
+    : '아쉬워요! 짝 ' + pairsFound + '/' + pairsTotal + '개 · 점수 ' + score.toLocaleString() + '<br>다시 도전해 보세요!';
+
+  if (win) sndWin(); else sndLose();
+  if (win){
+    // 승리 축포
+    for (let i = 0; i < 5; i++)
+      setTimeout(() => burst(40 + Math.random()*(fx.width-80), 120 + Math.random()*200, 14, 1.6), i*120);
+  }
+  setTimeout(() => resultScr.classList.remove('hidden'), 480);
 }
 
 // ---- 화면 전환 ----
@@ -254,14 +453,23 @@ function goHome(){
   resultScr.classList.add('hidden');
   gameScr.classList.add('hidden');
   startScr.classList.remove('hidden');
+  renderBests();
 }
 
 // ---- 이벤트 바인딩 ----
 document.querySelectorAll('.lv').forEach(b =>
-  b.addEventListener('click', () => startGame(b.dataset.lv)));
+  b.addEventListener('click', () => { audio(); startGame(b.dataset.lv); }));
 $('#btnBack').addEventListener('click', goHome);
 $('#btnHome').addEventListener('click', goHome);
 $('#btnRetry').addEventListener('click', () => startGame(level));
+$('#btnSound').addEventListener('click', () => {
+  soundOn = !soundOn;
+  $('#btnSound').textContent = soundOn ? '🔊' : '🔇';
+  if (soundOn) audio();
+});
+window.addEventListener('resize', sizeFx);
+renderBests();
+sizeFx();
 </script>
 </body>
 </html>
